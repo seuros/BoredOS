@@ -10,6 +10,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "../../wm/libwidget.h"
+#include "utf-8.h"
 
 #define COLOR_COFFEE    0xFF6B4423
 #define COLOR_TEAL      0xFF008080
@@ -1069,13 +1070,13 @@ static void control_panel_handle_mouse(int x, int y, bool is_down, bool is_click
     }
     
     if (current_view == VIEW_WALLPAPER) {
-        if (widget_textbox_handle_mouse(&tb_r, x, y, is_click, NULL)) {
+        if (widget_textbox_handle_mouse(&settings_ctx, &tb_r, x, y, is_click, NULL)) {
             focused_field = 0; input_cursor = tb_r.cursor_pos; return;
         }
-        if (widget_textbox_handle_mouse(&tb_g, x, y, is_click, NULL)) {
+        if (widget_textbox_handle_mouse(&settings_ctx, &tb_g, x, y, is_click, NULL)) {
             focused_field = 1; input_cursor = tb_g.cursor_pos; return;
         }
-        if (widget_textbox_handle_mouse(&tb_b, x, y, is_click, NULL)) {
+        if (widget_textbox_handle_mouse(&settings_ctx, &tb_b, x, y, is_click, NULL)) {
             focused_field = 2; input_cursor = tb_b.cursor_pos; return;
         }
         
@@ -1112,10 +1113,10 @@ static void control_panel_handle_mouse(int x, int y, bool is_down, bool is_click
     }
     
     if (current_view == VIEW_NETWORK) {
-        if (widget_textbox_handle_mouse(&tb_ip, x, y, is_click, NULL)) {
+        if (widget_textbox_handle_mouse(&settings_ctx, &tb_ip, x, y, is_click, NULL)) {
             focused_field = 5; input_cursor = tb_ip.cursor_pos; return;
         }
-        if (widget_textbox_handle_mouse(&tb_dns, x, y, is_click, NULL)) {
+        if (widget_textbox_handle_mouse(&settings_ctx, &tb_dns, x, y, is_click, NULL)) {
             focused_field = 6; input_cursor = tb_dns.cursor_pos; return;
         }
         
@@ -1239,10 +1240,10 @@ static void control_panel_handle_mouse(int x, int y, bool is_down, bool is_click
     }
     
     if (current_view == VIEW_DISPLAY) {
-        if (widget_textbox_handle_mouse(&tb_custom_w, x, y, is_click, NULL)) {
+        if (widget_textbox_handle_mouse(&settings_ctx, &tb_custom_w, x, y, is_click, NULL)) {
             focused_field = 3; disp_sel_res = 5; input_cursor = tb_custom_w.cursor_pos; return;
         }
-        if (widget_textbox_handle_mouse(&tb_custom_h, x, y, is_click, NULL)) {
+        if (widget_textbox_handle_mouse(&settings_ctx, &tb_custom_h, x, y, is_click, NULL)) {
             focused_field = 4; disp_sel_res = 5; input_cursor = tb_custom_h.cursor_pos; return;
         }
     }
@@ -1264,33 +1265,34 @@ static void control_panel_handle_mouse(int x, int y, bool is_down, bool is_click
     }
 }
 
-static void control_panel_handle_key(char c, bool pressed) {
+static void control_panel_handle_key(uint32_t codepoint, int legacy, bool pressed) {
     if (!pressed) return;
     if (focused_field < 0) return;
     
     if (current_view == VIEW_WALLPAPER) {
-        if (focused_field == 0) widget_textbox_handle_key(&tb_r, c, NULL);
-        if (focused_field == 1) widget_textbox_handle_key(&tb_g, c, NULL);
-        if (focused_field == 2) widget_textbox_handle_key(&tb_b, c, NULL);
-        if (c == '\t') focused_field = (focused_field + 1) % 3;
+        if (focused_field == 0) widget_textbox_handle_key(&tb_r, codepoint, legacy, NULL);
+        if (focused_field == 1) widget_textbox_handle_key(&tb_g, codepoint, legacy, NULL);
+        if (focused_field == 2) widget_textbox_handle_key(&tb_b, codepoint, legacy, NULL);
+        if (legacy == '\t') focused_field = (focused_field + 1) % 3;
     } else if (current_view == VIEW_DISPLAY) {
         char *focused_buffer = (focused_field == 3) ? custom_res_w : custom_res_h;
-        if (c == '\b') {
+        if (legacy == '\b' || legacy == 127) {
             if (input_cursor > 0) {
-                input_cursor--;
+                const char *prev = text_prev_utf8(focused_buffer, focused_buffer + input_cursor);
+                input_cursor = (int)(prev - focused_buffer);
                 focused_buffer[input_cursor] = '\0';
             }
-        } else if (c >= '0' && c <= '9') {
+        } else if (codepoint >= '0' && codepoint <= '9') {
             if (input_cursor < 5) {
-                focused_buffer[input_cursor] = c;
+                focused_buffer[input_cursor] = (char)codepoint;
                 input_cursor++;
                 focused_buffer[input_cursor] = '\0';
             }
         }
     } else if (current_view == VIEW_NETWORK) {
-        if (focused_field == 5) widget_textbox_handle_key(&tb_ip, c, NULL);
-        if (focused_field == 6) widget_textbox_handle_key(&tb_dns, c, NULL);
-        if (c == '\t') focused_field = (focused_field == 5) ? 6 : 5;
+        if (focused_field == 5) widget_textbox_handle_key(&tb_ip, codepoint, legacy, NULL);
+        if (focused_field == 6) widget_textbox_handle_key(&tb_dns, codepoint, legacy, NULL);
+        if (legacy == '\t') focused_field = (focused_field == 5) ? 6 : 5;
     }
 }
 
@@ -1434,11 +1436,11 @@ int main(int argc, char **argv) {
                 }
 
             } else if (ev.type == GUI_EVENT_KEY) {
-                control_panel_handle_key((char)ev.arg1, true);
+                control_panel_handle_key((uint32_t)ev.arg4, (int)ev.arg1, true);
                 dirty = true;
 
             } else if (ev.type == GUI_EVENT_KEYUP) {
-                control_panel_handle_key((char)ev.arg1, false);
+                control_panel_handle_key((uint32_t)ev.arg4, (int)ev.arg1, false);
 
             } else if (ev.type == GUI_EVENT_CLOSE) {
                 sys_exit(0);

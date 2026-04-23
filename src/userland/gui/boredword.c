@@ -7,6 +7,7 @@
 #include "libc/libui.h"
 #include "libc/stdlib.h"
 #include "../../wm/libwidget.h"
+#include "utf-8.h"
 #include <stddef.h>
 
 #define COLOR_DARK_PANEL  0xFF202020
@@ -243,23 +244,24 @@ static void update_formatting_state(void) {
     }
 }
 
-static void handle_arrows(ui_window_t win, char c) {
-    if (c == 17) {
+static void handle_arrows(ui_window_t win, uint32_t c) {
+    if (c == 17) { // UP
         if (cursor_para > 0) {
             cursor_para--;
             cursor_run = paragraphs[cursor_para].run_count - 1;
             if (cursor_run < 0) cursor_run = 0;
             cursor_pos = paragraphs[cursor_para].runs[cursor_run].len;
         }
-    } else if (c == 18) {
+    } else if (c == 18) { // DOWN
         if (cursor_para < para_count - 1) {
             cursor_para++;
             cursor_run = 0;
             cursor_pos = 0;
         }
-    } else if (c == 19) {
+    } else if (c == 19) { // LEFT
         if (cursor_pos > 0) {
-            cursor_pos--;
+            const char *prev = text_prev_utf8(paragraphs[cursor_para].runs[cursor_run].text, paragraphs[cursor_para].runs[cursor_run].text + cursor_pos);
+            cursor_pos = (int)(prev - paragraphs[cursor_para].runs[cursor_run].text);
         } else if (cursor_run > 0) {
             cursor_run--;
             cursor_pos = paragraphs[cursor_para].runs[cursor_run].len;
@@ -269,9 +271,10 @@ static void handle_arrows(ui_window_t win, char c) {
             if (cursor_run < 0) cursor_run = 0;
             cursor_pos = paragraphs[cursor_para].runs[cursor_run].len;
         }
-    } else if (c == 20) {
+    } else if (c == 20) { // RIGHT
         if (cursor_pos < paragraphs[cursor_para].runs[cursor_run].len) {
-            cursor_pos++;
+            const char *next = text_next_utf8(paragraphs[cursor_para].runs[cursor_run].text + cursor_pos);
+            cursor_pos = (int)(next - paragraphs[cursor_para].runs[cursor_run].text);
         } else if (cursor_run < paragraphs[cursor_para].run_count - 1) {
             cursor_run++;
             cursor_pos = 0;
@@ -357,7 +360,7 @@ static void delete_selection(void) {
     file_modified = 1;
 }
 
-static void insert_char(ui_window_t win, char c) {
+static void insert_char(ui_window_t win, uint32_t c, int legacy) {
     _Bool has_selection = 0;
     if (sel_start_para != -1 && sel_end_para != -1) {
         if (!(sel_start_para == sel_end_para && sel_start_run == sel_end_run && sel_start_pos == sel_end_pos)) {
@@ -367,7 +370,7 @@ static void insert_char(ui_window_t win, char c) {
 
     if (has_selection) {
         delete_selection();
-        if (c == '\b') return;
+        if (legacy == '\b' || legacy == 127) return;
     } else {
         if (sel_start_para != -1) {
             sel_start_para = -1;
@@ -375,20 +378,23 @@ static void insert_char(ui_window_t win, char c) {
         }
     }
 
-    if (c < 32 && c != '\n' && c != '\b') {
-        if (c >= 17 && c <= 20) {
-            handle_arrows(win, c);
-        }
+    // Handle special legacy keys
+    if (legacy >= 17 && legacy <= 20) {
+        handle_arrows(win, legacy);
         return;
     }
 
-    if (c == '\b') {
+    if (legacy == '\b') {
         save_undo_state();
         if (cursor_pos > 0) {
             TextRun *r = &paragraphs[cursor_para].runs[cursor_run];
-            for(int i=cursor_pos-1; i<r->len; i++) r->text[i] = r->text[i+1];
-            r->len--;
-            cursor_pos--;
+            const char *prev = text_prev_utf8(r->text, r->text + cursor_pos);
+            int char_len = (int)((r->text + cursor_pos) - prev);
+
+            for(int i=cursor_pos-char_len; i<r->len-char_len; i++) r->text[i] = r->text[i+char_len];
+            r->len -= char_len;
+            cursor_pos -= char_len;
+            r->text[r->len] = 0;
             
             if (r->len == 0 && paragraphs[cursor_para].run_count > 1) {
                 for(int i = cursor_run; i < paragraphs[cursor_para].run_count - 1; i++) {
@@ -411,7 +417,10 @@ static void insert_char(ui_window_t win, char c) {
             if (cursor_run < 0) cursor_run = 0;
             TextRun *r = &paragraphs[cursor_para].runs[cursor_run];
             if (r->len > 0) {
-                r->len--;
+                const char *prev = text_prev_utf8(r->text, r->text + r->len);
+                int char_len = (int)((r->text + r->len) - prev);
+                r->len -= char_len;
+                r->text[r->len] = 0;
                 cursor_pos = r->len;
                 
                 if (r->len == 0 && paragraphs[cursor_para].run_count > 1) {
@@ -453,7 +462,7 @@ static void insert_char(ui_window_t win, char c) {
         return;
     }
 
-    if (c == '\n') {
+    if (legacy == '\n') {
         save_undo_state();
         if (para_count >= MAX_PARAGRAPHS) return;
         for(int i=para_count; i>cursor_para+1; i--) paragraphs[i] = paragraphs[i-1];
@@ -519,14 +528,18 @@ static void insert_char(ui_window_t win, char c) {
         r->color = current_text_color;
     }
     
-    if (c == ' ') save_undo_state();
+    if (legacy == ' ') save_undo_state();
     
-    if (r->len < MAX_RUN_TEXT - 1) {
-        for(int i=r->len; i>cursor_pos; i--) r->text[i] = r->text[i-1];
-        r->text[cursor_pos] = c;
-        r->len++;
-        cursor_pos++;
-        file_modified = 1;
+    char utf8[4];
+    if (c >= 32 && c != 127) {
+        int clen = text_encode_utf8(c, utf8);
+        if (clen > 0 && r->len + clen < MAX_RUN_TEXT) {
+            for(int i=r->len; i>cursor_pos; i--) r->text[i + clen - 1] = r->text[i-1];
+            for(int i=0; i<clen; i++) r->text[cursor_pos + i] = utf8[i];
+            r->len += clen;
+            cursor_pos += clen;
+            file_modified = 1;
+        }
     }
     ensure_cursor_visible(win);
 }
@@ -945,12 +958,14 @@ static void load_file(ui_window_t win, const char* path) {
                  i++;
                  while(i < size && buf[i] != ')') {
                      if (buf[i] == '\\' && i+1 < size) i++;
-                     insert_char(win, buf[i]);
-                     i++;
+                     int adv;
+                     uint32_t cp = text_decode_utf8(buf + i, &adv);
+                     insert_char(win, cp, (int)buf[i]);
+                     i += adv;
                  }
              }
              else if ((buf[i] == 'T' && buf[i+1] == 'd') || (buf[i] == 'T' && buf[i+1] == 'm')) {
-                 insert_char(win, '\n');
+                 insert_char(win, '\n', '\n');
                  i += 2;
              }
              else {
@@ -958,8 +973,15 @@ static void load_file(ui_window_t win, const char* path) {
              }
         }
     } else {
-        for(int i=0; i<size; i++) {
-            if (buf[i] != '\r') insert_char(win, buf[i]);
+        for(int i=0; i<size; ) {
+            if (buf[i] != '\r') {
+                int adv;
+                uint32_t cp = text_decode_utf8(buf + i, &adv);
+                insert_char(win, cp, (int)buf[i]);
+                i += adv;
+            } else {
+                i++;
+            }
         }
     }
     file_modified = 0;
@@ -1171,7 +1193,12 @@ static void draw_document(ui_window_t win) {
                 if (fh > max_h) max_h = fh;
                 
                 while(c_idx < run->len) {
-                    char buf[2] = {run->text[c_idx], 0};
+                    int adv;
+                    text_decode_utf8(run->text + c_idx, &adv);
+                    char buf[5];
+                    for (int k = 0; k < adv; k++) buf[k] = run->text[c_idx + k];
+                    buf[adv] = 0;
+                    
                     int cw = ui_get_string_width_scaled(buf, run->font_size);
                     
                     if (run->text[c_idx] == ' ') {
@@ -1184,7 +1211,7 @@ static void draw_document(ui_window_t win) {
                         break;
                     }
                     line_w += cw;
-                    c_idx++;
+                    c_idx += adv;
                 }
                 
                 if (c_idx < run->len) break;
@@ -1242,9 +1269,11 @@ static void draw_document(ui_window_t win) {
                 else chars_to_draw = run->len - d_char;
                 
                 if (p == cursor_para && d_run == cursor_run && cursor_pos >= d_char && cursor_pos <= d_char + chars_to_draw) {
-                    char sub[128];
-                    for(int i=0; i<cursor_pos - d_char; i++) sub[i] = run->text[d_char + i];
-                    sub[cursor_pos - d_char] = 0;
+                    char sub[512];
+                    int len_before = cursor_pos - d_char;
+                    if (len_before > 511) len_before = 511;
+                    for(int i=0; i<len_before; i++) sub[i] = run->text[d_char + i];
+                    sub[len_before] = 0;
                     line_cursor_x = cur_x + ui_get_string_width_scaled(sub, run->font_size);
                 }
                 
@@ -1257,9 +1286,15 @@ static void draw_document(ui_window_t win) {
                     
                     int text_y = cur_y + y_offset;
                     if (text_y + run_h > 40 && text_y < win_h) {
-                        for(int i=0; i<chars_to_draw; i++) {
-                            char buf[2] = {run->text[d_char + i], 0};
-                            _Bool in_sel = is_in_selection(p, d_run, d_char + i);
+                        int c_offset_local = 0;
+                        while (c_offset_local < chars_to_draw) {
+                            int adv;
+                            text_decode_utf8(run->text + d_char + c_offset_local, &adv);
+                            char buf[5];
+                            for (int k = 0; k < adv; k++) buf[k] = run->text[d_char + c_offset_local + k];
+                            buf[adv] = 0;
+                            
+                            _Bool in_sel = is_in_selection(p, d_run, d_char + c_offset_local);
                             uint32_t text_col = in_sel ? COLOR_WHITE : run->color;
                             int cw = ui_get_string_width_scaled(buf, run->font_size);
                             
@@ -1281,11 +1316,14 @@ static void draw_document(ui_window_t win) {
                                 }
                             }
                             cur_x += cw;
+                            c_offset_local += adv;
                         }
                     } else {
-                        char buf[128];
-                        for(int i=0; i<chars_to_draw; i++) buf[i] = run->text[d_char + i];
-                        buf[chars_to_draw] = 0;
+                        char buf[512];
+                        int len_to_copy = chars_to_draw;
+                        if (len_to_copy > 511) len_to_copy = 511;
+                        for(int i=0; i<len_to_copy; i++) buf[i] = run->text[d_char + i];
+                        buf[len_to_copy] = 0;
                         cur_x += ui_get_string_width_scaled(buf, run->font_size);
                     }
                 }
@@ -1367,12 +1405,17 @@ static void ensure_cursor_visible(ui_window_t win) {
                 if (fh > max_h) max_h = fh;
                 
                 while(c_idx < run->len) {
-                    char buf[2] = {run->text[c_idx], 0};
+                    int adv;
+                    text_decode_utf8(run->text + c_idx, &adv);
+                    char buf[5];
+                    for (int k = 0; k < adv; k++) buf[k] = run->text[c_idx + k];
+                    buf[adv] = 0;
+                    
                     int cw = ui_get_string_width_scaled(buf, run->font_size);
                     if (run->text[c_idx] == ' ') { last_space_run = r_idx; last_space_char = c_idx; last_space_w = line_w + cw; }
                     if (line_w + cw > page_w - 20) break;
                     line_w += cw;
-                    c_idx++;
+                    c_idx += adv;
                 }
                 if (c_idx < run->len) break;
                 r_idx++; c_idx = 0;
@@ -1692,12 +1735,17 @@ static void handle_click(ui_window_t win, int x, int y) {
                     int fh = ui_get_font_height_scaled(run->font_size);
                     if (fh > max_h) max_h = fh;
                     while(c_idx < run->len) {
-                        char buf[2] = {run->text[c_idx], 0};
+                        int adv;
+                        text_decode_utf8(run->text + c_idx, &adv);
+                        char buf[5];
+                        for (int k = 0; k < adv; k++) buf[k] = run->text[c_idx + k];
+                        buf[adv] = 0;
+                        
                         int cw = ui_get_string_width_scaled(buf, run->font_size);
                         if (run->text[c_idx] == ' ') { last_space_run = r_idx; last_space_char = c_idx; last_space_w = line_w + cw; }
                         if (line_w + cw > page_w - 20) break;
                         line_w += cw;
-                        c_idx++;
+                        c_idx += adv;
                     }
                     if (c_idx < run->len) break;
                     r_idx++; c_idx = 0;
@@ -1731,31 +1779,38 @@ static void handle_click(ui_window_t win, int x, int y) {
                         TextRun *run = &para->runs[d_run];
                         set_active_font(win, run->font_idx);
                         int chars_to_draw = (d_run == end_run) ? (end_char - d_char) : (run->len - d_char);
-                        for(int i=0; i<chars_to_draw; i++) {
-                            char buf[2] = {run->text[d_char + i], 0};
+                        int cur_c_offset = 0;
+                        while(cur_c_offset < chars_to_draw) {
+                            int adv;
+                            text_decode_utf8(run->text + d_char + cur_c_offset, &adv);
+                            char buf[5];
+                            for (int k = 0; k < adv; k++) buf[k] = run->text[d_char + cur_c_offset + k];
+                            buf[adv] = 0;
+                            
                             int cw = ui_get_string_width_scaled(buf, run->font_size);
                             if (target_x >= cur_x && target_x < cur_x + cw/2) {
-                                cursor_para = p; cursor_run = d_run; cursor_pos = d_char + i;
+                                cursor_para = p; cursor_run = d_run; cursor_pos = d_char + cur_c_offset;
                                 if (selection_started) {
-                                    sel_start_para = p; sel_start_run = d_run; sel_start_pos = d_char + i;
+                                    sel_start_para = p; sel_start_run = d_run; sel_start_pos = d_char + cur_c_offset;
                                     sel_end_para = -1;
                                     selection_started = 0;
                                 } else if (is_dragging) {
-                                    update_selection(p, d_run, d_char + i);
+                                    update_selection(p, d_run, d_char + cur_c_offset);
                                 }
                                 return;
                             } else if (target_x >= cur_x + cw/2 && target_x < cur_x + cw) {
-                                cursor_para = p; cursor_run = d_run; cursor_pos = d_char + i + 1;
+                                cursor_para = p; cursor_run = d_run; cursor_pos = d_char + cur_c_offset + adv;
                                 if (selection_started) {
-                                    sel_start_para = p; sel_start_run = d_run; sel_start_pos = d_char + i + 1;
+                                    sel_start_para = p; sel_start_run = d_run; sel_start_pos = d_char + cur_c_offset + adv;
                                     sel_end_para = -1;
                                     selection_started = 0;
                                 } else if (is_dragging) {
-                                    update_selection(p, d_run, d_char + i + 1);
+                                    update_selection(p, d_run, d_char + cur_c_offset + adv);
                                 }
                                 return;
                             }
                             cur_x += cw;
+                            cur_c_offset += adv;
                         }
                         d_char = 0; d_run++;
                     }
@@ -1902,16 +1957,22 @@ int main(int argc, char **argv) {
             } else if (ev.type == GUI_EVENT_CLICK) {
                 needs_repaint = 1;
             } else if (ev.type == GUI_EVENT_KEY) {
+                uint32_t cp = (uint32_t)ev.arg4;
                 if (active_dialog == 1) {
-                    char c = (char)ev.arg1;
-                    if (c == '\b' && dialog_input_len > 0) {
-                        dialog_input[--dialog_input_len] = 0;
-                    } else if (c >= 32 && c < 127 && dialog_input_len < 127) {
-                        dialog_input[dialog_input_len++] = c;
+                    if (cp == '\b' && dialog_input_len > 0) {
+                        const char *prev = text_prev_utf8(dialog_input, dialog_input + dialog_input_len);
+                        dialog_input_len = (int)(prev - dialog_input);
                         dialog_input[dialog_input_len] = 0;
+                    } else if (cp >= 32 && cp != 127) {
+                        char utf8[4];
+                        int clen = text_encode_utf8(cp, utf8);
+                        if (clen > 0 && dialog_input_len + clen < 255) {
+                            for(int i=0; i<clen; i++) dialog_input[dialog_input_len++] = utf8[i];
+                            dialog_input[dialog_input_len] = 0;
+                        }
                     }
                 } else {
-                    insert_char(win, (char)ev.arg1);
+                    insert_char(win, cp, (int)ev.arg1);
                 }
                 needs_repaint = 1;
             } else if (ev.type == GUI_EVENT_CLOSE) {

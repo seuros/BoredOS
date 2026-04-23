@@ -60,8 +60,8 @@ typedef struct {
 
 void widget_textbox_init(widget_textbox_t *tb, int x, int y, int w, int h, char *buffer, int max_len);
 void widget_textbox_draw(widget_context_t *ctx, widget_textbox_t *tb);
-bool widget_textbox_handle_mouse(widget_textbox_t *tb, int mx, int my, bool mouse_clicked, void *user_data);
-bool widget_textbox_handle_key(widget_textbox_t *tb, char c, void *user_data);
+bool widget_textbox_handle_mouse(widget_context_t *ctx, widget_textbox_t *tb, int mx, int my, bool mouse_clicked, void *user_data);
+bool widget_textbox_handle_key(widget_textbox_t *tb, uint32_t codepoint, int legacy, void *user_data);
 
 // --- Dropdown ---
 typedef struct {

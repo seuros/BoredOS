@@ -1,4 +1,5 @@
 #include "libwidget.h"
+#include "utf-8.h"
 #include <stddef.h>
 
 #define COLOR_GRAY 0xFFC0C0C0
@@ -237,16 +238,13 @@ void widget_textbox_draw(widget_context_t *ctx, widget_textbox_t *tb) {
     
     if (ctx->draw_string && tb->text) {
         int max_w = tb->w - 15;
-        int scroll_x = 0;
         int text_w = 0;
         
         if (ctx->measure_string_width) {
             text_w = ctx->measure_string_width(ctx->user_data, tb->text);
         } else {
-            text_w = string_len(tb->text) * 8;
+            text_w = (int)text_strlen_utf8(tb->text) * 8;
         }
-        
-        if (text_w > max_w) scroll_x = text_w - max_w;
         
         // Very basic simple drawing, without proper clipping since context lacks it
         ctx->draw_string(ctx->user_data, tb->x + 5, tb->y + (tb->h - 8) / 2, tb->text, text_color);
@@ -263,7 +261,13 @@ void widget_textbox_draw(widget_context_t *ctx, widget_textbox_t *tb) {
                 tmp[k] = 0;
                 cx = ctx->measure_string_width(ctx->user_data, tmp);
             } else {
-                cx = tb->cursor_pos * 8;
+                char tmp[256];
+                int k = 0;
+                for (k = 0; k < tb->cursor_pos && tb->text[k]; k++) {
+                    tmp[k] = tb->text[k];
+                }
+                tmp[k] = 0;
+                cx = (int)text_strlen_utf8(tmp) * 8;
             }
             
             if (cx > max_w) cx = max_w; // clamped to visible end
@@ -273,50 +277,90 @@ void widget_textbox_draw(widget_context_t *ctx, widget_textbox_t *tb) {
     }
 }
 
-bool widget_textbox_handle_mouse(widget_textbox_t *tb, int mx, int my, bool mouse_clicked, void *user_data) {
+bool widget_textbox_handle_mouse(widget_context_t *ctx, widget_textbox_t *tb, int mx, int my, bool mouse_clicked, void *user_data) {
+    (void)user_data;
     bool in_bounds = (mx >= tb->x && mx < tb->x + tb->w && my >= tb->y && my < tb->y + tb->h);
     if (mouse_clicked) {
         tb->focused = in_bounds;
         if (in_bounds && tb->text) {
             int rel_x = mx - (tb->x + 5);
             if (rel_x < 0) rel_x = 0;
-            // Rough estimation for fixed-width font 8px chars
-            int new_pos = rel_x / 8;
-            int len = string_len(tb->text);
-            if (new_pos > len) new_pos = len;
-            tb->cursor_pos = new_pos;
+            
+            int cur_x = 0;
+            int byte_pos = 0;
+            while (tb->text[byte_pos]) {
+                int adv;
+                text_decode_utf8(tb->text + byte_pos, &adv);
+                char buf[5];
+                for (int k = 0; k < adv; k++) buf[k] = tb->text[byte_pos + k];
+                buf[adv] = 0;
+                
+                int cw;
+                if (ctx && ctx->measure_string_width) {
+                    cw = ctx->measure_string_width(ctx->user_data, buf);
+                } else {
+                    cw = 8; 
+                }
+                
+                if (rel_x < cur_x + cw / 2) {
+                    tb->cursor_pos = byte_pos;
+                    return true;
+                }
+                if (rel_x < cur_x + cw) {
+                    tb->cursor_pos = byte_pos + adv;
+                    return true;
+                }
+                
+                cur_x += cw;
+                byte_pos += adv;
+            }
+            tb->cursor_pos = byte_pos;
         }
     }
     return in_bounds;
 }
 
-bool widget_textbox_handle_key(widget_textbox_t *tb, char c, void *user_data) {
+bool widget_textbox_handle_key(widget_textbox_t *tb, uint32_t codepoint, int legacy, void *user_data) {
     if (!tb->focused || !tb->text) return false;
     
-    int len = string_len(tb->text);
-    if (c == 19) { // LEFT
-        if (tb->cursor_pos > 0) tb->cursor_pos--;
+    int len = (int)string_len(tb->text);
+    if (legacy == 19) { // LEFT
+        if (tb->cursor_pos > 0) {
+            const char *prev = text_prev_utf8(tb->text, tb->text + tb->cursor_pos);
+            tb->cursor_pos = (int)(prev - tb->text);
+        }
         return true;
-    } else if (c == 20) { // RIGHT
-        if (tb->cursor_pos < len) tb->cursor_pos++;
+    } else if (legacy == 20) { // RIGHT
+        if (tb->cursor_pos < len) {
+            const char *next = text_next_utf8(tb->text + tb->cursor_pos);
+            tb->cursor_pos = (int)(next - tb->text);
+        }
         return true;
     }
     
-    if (c == '\b') { // backspace
+    if (legacy == '\b' || legacy == 127) { // backspace
         if (tb->cursor_pos > 0) {
-            for (int i = tb->cursor_pos - 1; i < len; i++) {
-                tb->text[i] = tb->text[i + 1];
+            const char *prev = text_prev_utf8(tb->text, tb->text + tb->cursor_pos);
+            int char_len = (int)((tb->text + tb->cursor_pos) - prev);
+            
+            for (int i = tb->cursor_pos - char_len; i < len - char_len; i++) {
+                tb->text[i] = tb->text[i + char_len];
             }
-            tb->cursor_pos--;
+            tb->cursor_pos -= char_len;
+            tb->text[len - char_len] = 0;
             if (tb->on_change) tb->on_change(user_data);
         }
-    } else if (c >= 32 && c < 127) {
-        if (len < tb->max_len - 1) {
+    } else if (codepoint >= 32 && codepoint != 127) {
+        char utf8[4];
+        int clen = text_encode_utf8(codepoint, utf8);
+        if (clen > 0 && len + clen < tb->max_len) {
             for (int i = len; i >= tb->cursor_pos; i--) {
-                tb->text[i + 1] = tb->text[i];
+                tb->text[i + clen] = tb->text[i];
             }
-            tb->text[tb->cursor_pos] = c;
-            tb->cursor_pos++;
+            for (int i = 0; i < clen; i++) {
+                tb->text[tb->cursor_pos + i] = utf8[i];
+            }
+            tb->cursor_pos += clen;
             if (tb->on_change) tb->on_change(user_data);
         }
     }

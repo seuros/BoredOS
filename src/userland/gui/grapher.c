@@ -6,6 +6,7 @@
 // BOREDOS_APP_ICONS: /Library/images/icons/colloid/se.sjoerd.Graphs.png;/Library/images/icons/colloid/app-icon-preview.png
 #include "syscall.h"
 #include "libui.h"
+#include "utf-8.h"
 #include "../../wm/libwidget.h"
 #include <stdbool.h>
 #include "stdlib.h"
@@ -1598,16 +1599,17 @@ int main(void) {
             } else if (ev.type == GUI_EVENT_PAINT) {
                 needs_repaint = true;
             } else if (ev.type == GUI_EVENT_KEY) {
+                uint32_t cp = (uint32_t)ev.arg4;
                 char c = (char)ev.arg1;
                 if (tb_equation.focused) {
-                    if (c == '\n') {
-                        eq_len = strlen(eq_buffer);
+                    if (cp == '\n') {
+                        eq_len = (int)strlen(eq_buffer);
                         parse_equation();
                         if (graph_mode == MODE_2D) autofit_2d_view();
                         needs_repaint = true;
                     } else {
-                        widget_textbox_handle_key(&tb_equation, c, NULL);
-                        eq_len = strlen(eq_buffer);
+                        widget_textbox_handle_key(&tb_equation, cp, (int)ev.arg1, NULL);
+                        eq_len = (int)strlen(eq_buffer);
                         needs_repaint = true;
                     }
                 } else if ((c == 'r' || c == 'R') && ev.arg3 == 1) { 
@@ -1699,7 +1701,7 @@ int main(void) {
                     }
                 }
 
-                widget_textbox_handle_mouse(&tb_equation, mx, my, true, NULL);
+                widget_textbox_handle_mouse(&wctx, &tb_equation, mx, my, true, NULL);
                 needs_repaint = true;
 
             } else if (ev.type == GUI_EVENT_MOUSE_DOWN) {

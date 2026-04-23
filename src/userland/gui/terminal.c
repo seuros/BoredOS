@@ -1140,10 +1140,10 @@ static void handle_key(gui_event_t *ev) {
     if (!ctrl) {
         if (legacy == KEY_BACKSPACE) {
             if (s->input_len > 0) {
-                // Find previous UTF-8 character boundary
                 const char *prev = text_prev_utf8(s->current_input, s->current_input + s->input_len);
                 s->input_len = (int)(prev - s->current_input);
                 s->current_input[s->input_len] = 0;
+                s->unacknowledged_chars--;
             }
         } else if (codepoint >= 32 && codepoint != 127) {
             char utf8[4];
@@ -1161,8 +1161,6 @@ static void handle_key(gui_event_t *ev) {
             s->input_len = 0;
             s->current_input[0] = 0;
             s->unacknowledged_chars = 0;
-        } else if (legacy == KEY_BACKSPACE) {
-            s->unacknowledged_chars--;
         }
 
         update_input_color(s);

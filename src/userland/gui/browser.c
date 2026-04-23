@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include "libc/stdlib.h"
+#include "utf-8.h"
 
 static int win_w = 1280;
 static int win_h = 960;
@@ -782,84 +783,73 @@ static void decode_html_entities(char *str) {
             if (str_istarts_with(src, "&gt;")) { *dst++ = '>'; src += 4; continue; }
             if (str_istarts_with(src, "&apos;")) { *dst++ = '\''; src += 6; continue; }
             if (str_istarts_with(src, "&nbsp;")) { *dst++ = ' '; src += 6; continue; }
-            if (str_istarts_with(src, "&mdash;")) { *dst++ = (char)128; src += 7; continue; }
-            if (str_istarts_with(src, "&mdash"))  { *dst++ = (char)128; src += 6; continue; } 
-            if (str_istarts_with(src, "&ndash;")) { *dst++ = (char)129; src += 7; continue; }
-            if (str_istarts_with(src, "&ndash"))  { *dst++ = (char)129; src += 6; continue; }
-            if (str_istarts_with(src, "&bull;"))  { *dst++ = (char)130; src += 6; continue; }
-            if (str_istarts_with(src, "&bull"))   { *dst++ = (char)130; src += 5; continue; }
-            if (str_istarts_with(src, "&hellip;")){ *dst++ = (char)131; src += 8; continue; }
-            if (str_istarts_with(src, "&hellip")){ *dst++ = (char)131; src += 7; continue; }
-            if (str_istarts_with(src, "&trade;")) { *dst++ = (char)132; src += 7; continue; }
-            if (str_istarts_with(src, "&euro;"))  { *dst++ = (char)133; src += 6; continue; }
-            if (str_istarts_with(src, "&middot;")){ *dst++ = (char)134; src += 8; continue; }
+            if (str_istarts_with(src, "&mdash;")) { dst += text_encode_utf8(8212, dst); src += 7; continue; }
+            if (str_istarts_with(src, "&mdash"))  { dst += text_encode_utf8(8212, dst); src += 6; continue; } 
+            if (str_istarts_with(src, "&ndash;")) { dst += text_encode_utf8(8211, dst); src += 7; continue; }
+            if (str_istarts_with(src, "&ndash"))  { dst += text_encode_utf8(8211, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&bull;"))  { dst += text_encode_utf8(8226, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&bull"))   { dst += text_encode_utf8(8226, dst); src += 5; continue; }
+            if (str_istarts_with(src, "&hellip;")){ dst += text_encode_utf8(8230, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&hellip")){ dst += text_encode_utf8(8230, dst); src += 7; continue; }
+            if (str_istarts_with(src, "&trade;")) { dst += text_encode_utf8(8482, dst); src += 7; continue; }
+            if (str_istarts_with(src, "&euro;"))  { dst += text_encode_utf8(8364, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&middot;")){ dst += text_encode_utf8(183, dst); src += 8; continue; }
             if (str_istarts_with(src, "&lsquo;")) { *dst++ = '\''; src += 7; continue; }
             if (str_istarts_with(src, "&rsquo;")) { *dst++ = '\''; src += 7; continue; }
             if (str_istarts_with(src, "&ldquo;")) { *dst++ = '\"'; src += 7; continue; }
             if (str_istarts_with(src, "&rdquo;")) { *dst++ = '\"'; src += 7; continue; }      
-            if (str_istarts_with(src, "&iexcl;")) { *dst++ = (char)161; src += 7; continue; }
-            if (str_istarts_with(src, "&cent;")) { *dst++ = (char)162; src += 6; continue; }
-            if (str_istarts_with(src, "&pound;")) { *dst++ = (char)163; src += 7; continue; }
-            if (str_istarts_with(src, "&yen;")) { *dst++ = (char)165; src += 5; continue; }
-            if (str_istarts_with(src, "&copy;")) { *dst++ = (char)169; src += 6; continue; }
-            if (str_istarts_with(src, "&reg;")) { *dst++ = (char)174; src += 5; continue; }
-            if (str_istarts_with(src, "&deg;")) { *dst++ = (char)176; src += 5; continue; }
-            if (str_istarts_with(src, "&aacute;")) { *dst++ = (char)225; src += 8; continue; }
-            if (str_istarts_with(src, "&eacute;")) { *dst++ = (char)233; src += 8; continue; }
-            if (str_istarts_with(src, "&iacute;")) { *dst++ = (char)237; src += 8; continue; }
-            if (str_istarts_with(src, "&oacute;")) { *dst++ = (char)243; src += 8; continue; }
-            if (str_istarts_with(src, "&uacute;")) { *dst++ = (char)250; src += 8; continue; }
-            if (str_istarts_with(src, "&ntilde;")) { *dst++ = (char)241; src += 8; continue; }
-            if (str_istarts_with(src, "&uuml;")) { *dst++ = (char)252; src += 6; continue; }
-            if (str_istarts_with(src, "&iquest;")) { *dst++ = (char)191; src += 8; continue; }
-            if (str_istarts_with(src, "&Agrave;")) { *dst++ = (char)192; src += 8; continue; }
-            if (str_istarts_with(src, "&Aacute;")) { *dst++ = (char)193; src += 8; continue; }
-            if (str_istarts_with(src, "&times;")) { *dst++ = (char)215; src += 7; continue; }
-            if (str_istarts_with(src, "&divide;")) { *dst++ = (char)247; src += 8; continue; }
-            if (str_istarts_with(src, "&plusmn;")) { *dst++ = (char)177; src += 8; continue; }
-            if (str_istarts_with(src, "&micro;")) { *dst++ = (char)181; src += 7; continue; }
-            if (str_istarts_with(src, "&para;")) { *dst++ = (char)182; src += 6; continue; }
-            if (str_istarts_with(src, "&brvbar;")) { *dst++ = (char)166; src += 8; continue; }
-            if (str_istarts_with(src, "&sect;")) { *dst++ = (char)167; src += 6; continue; }
-            if (str_istarts_with(src, "&uml;")) { *dst++ = (char)168; src += 5; continue; }
-            if (str_istarts_with(src, "&ordf;")) { *dst++ = (char)170; src += 6; continue; }
-            if (str_istarts_with(src, "&laquo;")) { *dst++ = (char)171; src += 7; continue; }
-            if (str_istarts_with(src, "&not;")) { *dst++ = (char)172; src += 5; continue; }
+            if (str_istarts_with(src, "&iexcl;")) { dst += text_encode_utf8(161, dst); src += 7; continue; }
+            if (str_istarts_with(src, "&cent;")) { dst += text_encode_utf8(162, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&pound;")) { dst += text_encode_utf8(163, dst); src += 7; continue; }
+            if (str_istarts_with(src, "&yen;")) { dst += text_encode_utf8(165, dst); src += 5; continue; }
+            if (str_istarts_with(src, "&copy;")) { dst += text_encode_utf8(169, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&reg;")) { dst += text_encode_utf8(174, dst); src += 5; continue; }
+            if (str_istarts_with(src, "&deg;")) { dst += text_encode_utf8(176, dst); src += 5; continue; }
+            if (str_istarts_with(src, "&aacute;")) { dst += text_encode_utf8(225, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&eacute;")) { dst += text_encode_utf8(233, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&iacute;")) { dst += text_encode_utf8(237, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&oacute;")) { dst += text_encode_utf8(243, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&uacute;")) { dst += text_encode_utf8(250, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&ntilde;")) { dst += text_encode_utf8(241, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&uuml;")) { dst += text_encode_utf8(252, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&iquest;")) { dst += text_encode_utf8(191, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&Agrave;")) { dst += text_encode_utf8(192, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&Aacute;")) { dst += text_encode_utf8(193, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&times;")) { dst += text_encode_utf8(215, dst); src += 7; continue; }
+            if (str_istarts_with(src, "&divide;")) { dst += text_encode_utf8(247, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&plusmn;")) { dst += text_encode_utf8(177, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&micro;")) { dst += text_encode_utf8(181, dst); src += 7; continue; }
+            if (str_istarts_with(src, "&para;")) { dst += text_encode_utf8(182, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&brvbar;")) { dst += text_encode_utf8(166, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&sect;")) { dst += text_encode_utf8(167, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&uml;")) { dst += text_encode_utf8(168, dst); src += 5; continue; }
+            if (str_istarts_with(src, "&ordf;")) { dst += text_encode_utf8(170, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&laquo;")) { dst += text_encode_utf8(171, dst); src += 7; continue; }
+            if (str_istarts_with(src, "&not;")) { dst += text_encode_utf8(172, dst); src += 5; continue; }
             if (str_istarts_with(src, "&shy;")) { src += 5; continue; } // Soft hyphen, ignore
-            if (str_istarts_with(src, "&macr;")) { *dst++ = (char)175; src += 6; continue; }
-            if (str_istarts_with(src, "&sup2;")) { *dst++ = (char)178; src += 6; continue; }
-            if (str_istarts_with(src, "&sup3;")) { *dst++ = (char)179; src += 6; continue; }
-            if (str_istarts_with(src, "&acute;")) { *dst++ = (char)180; src += 7; continue; }
-            if (str_istarts_with(src, "&cedil;")) { *dst++ = (char)184; src += 7; continue; }
-            if (str_istarts_with(src, "&sup1;")) { *dst++ = (char)185; src += 6; continue; }
-            if (str_istarts_with(src, "&ordm;")) { *dst++ = (char)186; src += 6; continue; }
-            if (str_istarts_with(src, "&raquo;")) { *dst++ = (char)187; src += 7; continue; }
-            if (str_istarts_with(src, "&frac14;")) { *dst++ = (char)188; src += 8; continue; }
-            if (str_istarts_with(src, "&frac12;")) { *dst++ = (char)189; src += 8; continue; }
-            if (str_istarts_with(src, "&frac34;")) { *dst++ = (char)190; src += 8; continue; }
+            if (str_istarts_with(src, "&macr;")) { dst += text_encode_utf8(175, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&sup2;")) { dst += text_encode_utf8(178, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&sup3;")) { dst += text_encode_utf8(179, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&acute;")) { dst += text_encode_utf8(180, dst); src += 7; continue; }
+            if (str_istarts_with(src, "&cedil;")) { dst += text_encode_utf8(184, dst); src += 7; continue; }
+            if (str_istarts_with(src, "&sup1;")) { dst += text_encode_utf8(185, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&ordm;")) { dst += text_encode_utf8(186, dst); src += 6; continue; }
+            if (str_istarts_with(src, "&raquo;")) { dst += text_encode_utf8(187, dst); src += 7; continue; }
+            if (str_istarts_with(src, "&frac14;")) { dst += text_encode_utf8(188, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&frac12;")) { dst += text_encode_utf8(189, dst); src += 8; continue; }
+            if (str_istarts_with(src, "&frac34;")) { dst += text_encode_utf8(190, dst); src += 8; continue; }
 
             if (src[1] == '#') {
                 int val = 0;
                 char *end = NULL;
                 if (src[2] == 'x' || src[2] == 'X') {
-                    val = strtol(src + 3, &end, 16);
+                    val = (int)strtol(src + 3, &end, 16);
                 } else {
-                    val = strtol(src + 2, &end, 10);
+                    val = (int)strtol(src + 2, &end, 10);
                 }
                 if (end && *end == ';' && end > src + 2) {
-                    if (val == 8211) val = 129; // &ndash;
-                    else if (val == 8212) val = 128; // &mdash;
-                    else if (val == 8226) val = 130; // &bull;
-                    else if (val == 8230) val = 131; // &hellip;
-                    else if (val == 8482) val = 132; // &trade;
-                    else if (val == 8364) val = 133; // &euro;
-                    else if (val == 183) val = 134; // &middot;
-                    else if (val == 8216 || val == 8217) val = '\'';
-                    else if (val == 8220 || val == 8221) val = '\"';
-                    else if (val == 160) val = ' ';
-                    
-                    if (val > 0 && val < 256) {
-                        *dst++ = (char)val;
+                    if (val > 0) {
+                        dst += text_encode_utf8((uint32_t)val, dst);
                         src = end + 1;
                         continue;
                     }
@@ -1810,7 +1800,7 @@ int main(int argc, char **argv) {
                 if (ev.type != GUI_EVENT_CLICK && ev.type != GUI_EVENT_MOUSE_DOWN) continue;
 
                 if (my < URL_BAR_H) {
-                    if (widget_textbox_handle_mouse(&url_tb, mx, my, is_click, NULL)) {
+                    if (widget_textbox_handle_mouse(&browser_ctx, &url_tb, mx, my, is_click, NULL)) {
                         focused_element = -1;
                         needs_repaint = true;
                         continue;
@@ -1994,26 +1984,46 @@ int main(int argc, char **argv) {
                 if (!found) { focused_element = -1; needs_repaint = true; }
             } else if (ev.type == GUI_EVENT_KEY || ev.type == GUI_EVENT_KEYUP) {
                 if (ev.type == GUI_EVENT_KEYUP) continue;
+                uint32_t cp = (uint32_t)ev.arg4;
                 char c = (char)ev.arg1;
                 if (focused_element == -1) {
-                    if (c == 13 || c == 10) {
+                    if (cp == 13 || cp == 10) {
                         if (history_count < HISTORY_MAX) { int j=0; while(url_input_buffer[j]) { history_stack[history_count][j] = url_input_buffer[j]; j++; } history_stack[history_count][j] = 0; history_count++; }
                         navigate(url_input_buffer); scroll_y = 0;
                         needs_repaint = true;
                     }
-                    else if (c == 19) { if (url_cursor > 0) url_cursor--; }
-                    else if (c == 20) { int len = 0; while(url_input_buffer[len]) len++; if (url_cursor < len) url_cursor++; }
-                    else if (c == 127 || c == 8) { 
+                    else if (c == 19) { // LEFT
                         if (url_cursor > 0) {
-                            int len = 0; while(url_input_buffer[len]) len++;
-                            for (int k=url_cursor-1; k<len; k++) url_input_buffer[k] = url_input_buffer[k+1];
-                            url_cursor--;
+                            const char *prev = text_prev_utf8(url_input_buffer, url_input_buffer + url_cursor);
+                            url_cursor = (int)(prev - url_input_buffer);
                         }
                     }
-                    else if (c >= 32 && c <= 126 && url_cursor < 511) { 
-                        int len = 0; while(url_input_buffer[len]) len++;
-                        for (int k=len; k>=url_cursor; k--) url_input_buffer[k+1] = url_input_buffer[k];
-                        url_input_buffer[url_cursor++] = c;
+                    else if (c == 20) { // RIGHT
+                        int len = (int)strlen(url_input_buffer);
+                        if (url_cursor < len) {
+                            const char *next = text_next_utf8(url_input_buffer + url_cursor);
+                            url_cursor = (int)(next - url_input_buffer);
+                        }
+                    }
+                    else if (c == 127 || c == 8) { 
+                        if (url_cursor > 0) {
+                            int len = (int)strlen(url_input_buffer);
+                            const char *prev = text_prev_utf8(url_input_buffer, url_input_buffer + url_cursor);
+                            int char_len = (int)((url_input_buffer + url_cursor) - prev);
+                            for (int k=url_cursor-char_len; k<len-char_len; k++) url_input_buffer[k] = url_input_buffer[k+char_len];
+                            url_cursor -= char_len;
+                            url_input_buffer[len - char_len] = 0;
+                        }
+                    }
+                    else if (cp >= 32 && cp != 127 && url_cursor < 511) { 
+                        char utf8[4];
+                        int clen = text_encode_utf8(cp, utf8);
+                        int len = (int)strlen(url_input_buffer);
+                        if (clen > 0 && len + clen < 511) {
+                            for (int k=len; k>=url_cursor; k--) url_input_buffer[k+clen] = url_input_buffer[k];
+                            for (int k=0; k<clen; k++) url_input_buffer[url_cursor + k] = utf8[k];
+                            url_cursor += clen;
+                        }
                     }
                 } else {
                     RenderElement *el = &elements[focused_element];
@@ -2060,17 +2070,35 @@ int main(int argc, char **argv) {
                         navigate(url_input_buffer); scroll_y = 0; focused_element = -1;
                         needs_repaint = true;
                     }
-                    else if (c == 19) { if (el->input_cursor > 0) el->input_cursor--; }
-                    else if (c == 20) { if (el->input_cursor < len) el->input_cursor++; }
-                    else if (c == 127 || c == 8) { 
+                    else if (c == 19) { // LEFT
                         if (el->input_cursor > 0) {
-                            for (int k=el->input_cursor-1; k<len; k++) el->attr_value[k] = el->attr_value[k+1];
-                            el->input_cursor--;
+                            const char *prev = text_prev_utf8(el->attr_value, el->attr_value + el->input_cursor);
+                            el->input_cursor = (int)(prev - el->attr_value);
                         }
                     }
-                    else if (c >= 32 && c <= 126 && len < 255) { 
-                        for (int k=len; k>=el->input_cursor; k--) el->attr_value[k+1] = el->attr_value[k];
-                        el->attr_value[el->input_cursor++] = c;
+                    else if (c == 20) { // RIGHT
+                        if (el->input_cursor < len) {
+                            const char *next = text_next_utf8(el->attr_value + el->input_cursor);
+                            el->input_cursor = (int)(next - el->attr_value);
+                        }
+                    }
+                    else if (c == 127 || c == 8) { 
+                        if (el->input_cursor > 0) {
+                            const char *prev = text_prev_utf8(el->attr_value, el->attr_value + el->input_cursor);
+                            int char_len = (int)((el->attr_value + el->input_cursor) - prev);
+                            for (int k=el->input_cursor-char_len; k<len-char_len; k++) el->attr_value[k] = el->attr_value[k+char_len];
+                            el->input_cursor -= char_len;
+                            el->attr_value[len - char_len] = 0;
+                        }
+                    }
+                    else if (cp >= 32 && cp != 127 && len < 255) { 
+                        char utf8[4];
+                        int clen = text_encode_utf8(cp, utf8);
+                        if (clen > 0 && len + clen < 255) {
+                            for (int k=len; k>=el->input_cursor; k--) el->attr_value[k+clen] = el->attr_value[k];
+                            for (int k=0; k<clen; k++) el->attr_value[el->input_cursor + k] = utf8[k];
+                            el->input_cursor += clen;
+                        }
                     }
 
                     int max_v = (el->w - 10) / 8;
