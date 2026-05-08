@@ -36,4 +36,3 @@ disk.qcow2
 disk.img
 edk2-vars.fd
 disk.img
-src/userland/cli/third_party/tcc/
