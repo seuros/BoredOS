@@ -337,6 +337,8 @@ int main(int argc, char **argv) {
         if (copy_tree("/Library", "/mnt/Library") != 0)  { serial_printf("[ERROR] copy /Library failed\n"); return 1; }
         if (copy_tree("/docs", "/mnt/docs") != 0)        { serial_printf("[ERROR] copy /docs failed\n"); return 1; }
         if (copy_tree("/root", "/mnt/root") != 0)        { serial_printf("[ERROR] copy /root failed\n"); return 1; }
+        if (copy_tree("/usr", "/mnt/usr") != 0)          { serial_printf("[ERROR] copy /usr failed\n"); return 1; }
+        if (copy_tree("/etc", "/mnt/etc") != 0)          { serial_printf("[ERROR] copy /etc failed\n"); return 1; }
         
         serial_printf("Copying kernel and initrd...\n");
         if (copy_file("/boot/boredos.elf", "/mnt/boot/boredos.elf") != 0) {
@@ -357,8 +359,9 @@ int main(int argc, char **argv) {
             serial_printf("[WARNING] initrd.tar not found in live system (checked /boot/ and /)!\n");
         }
         
-        copy_file_optional("README.md", "/mnt/README.md");
-        copy_file_optional("LICENSE", "/mnt/LICENSE");
+        copy_file_optional("/README.md", "/mnt/README.md");
+        copy_file_optional("/LICENSE", "/mnt/LICENSE");
+        copy_file_optional("/about.c", "/mnt/about.c");
         uint64_t t1 = get_ticks();
         serial_printf("Files copied (%llu ticks).\n", (unsigned long long)(t1 - t0));
     }

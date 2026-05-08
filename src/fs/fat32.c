@@ -15,7 +15,7 @@
 static spinlock_t ramfs_lock = SPINLOCK_INIT; // Protects the RAM-based filesystem (/)
 
 
-#define MAX_CLUSTERS 8192
+#define MAX_CLUSTERS 32768
 #define MAX_OPEN_HANDLES 32
 
 // In-memory FAT table

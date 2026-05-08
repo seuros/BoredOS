@@ -213,6 +213,12 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
 	mkdir -p $(BUILD_DIR)/initrd/root/Pictures
 	mkdir -p $(BUILD_DIR)/initrd/root/Documents
 	mkdir -p $(BUILD_DIR)/initrd/root/Downloads
+	mkdir -p $(BUILD_DIR)/initrd/etc
+	mkdir -p $(BUILD_DIR)/initrd/usr/lib/tcc/include
+	mkdir -p $(BUILD_DIR)/initrd/usr/local/include
+	mkdir -p $(BUILD_DIR)/initrd/usr/include/sys
+	mkdir -p $(BUILD_DIR)/initrd/usr/include/libc
+	mkdir -p $(BUILD_DIR)/initrd/usr/lib
 
 	@printf "$(YELLOW)[COPY]$(RESET) Limine binaries + kernel for installer..."
 	@if [ -f limine/BOOTX64.EFI ];     then cp limine/BOOTX64.EFI    $(BUILD_DIR)/initrd/boot/; fi
@@ -227,6 +233,22 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
 			cp "$$f" $(BUILD_DIR)/initrd/bin/; \
 		fi \
 	done
+
+	@printf "$(YELLOW)[COPY]$(RESET) TCC support files..."
+	@cp $(SRC_DIR)/userland/cli/third_party/tcc/libtcc1.a $(BUILD_DIR)/initrd/usr/lib/tcc/
+	@cp $(SRC_DIR)/userland/cli/third_party/tcc/libtcc1.a $(BUILD_DIR)/initrd/usr/lib/
+	@cp $(SRC_DIR)/userland/cli/third_party/tcc/include/*.h $(BUILD_DIR)/initrd/usr/lib/tcc/include/
+	@cp $(SRC_DIR)/userland/sdk/lib/libboredos.a $(BUILD_DIR)/initrd/usr/lib/
+	@cp $(SRC_DIR)/userland/sdk/lib/libc.a $(BUILD_DIR)/initrd/usr/lib/
+	@cp $(SRC_DIR)/userland/sdk/lib/libm.a $(BUILD_DIR)/initrd/usr/lib/
+	@cp $(SRC_DIR)/userland/bin/crt0.o $(BUILD_DIR)/initrd/usr/lib/crt0.o
+	@cp $(SRC_DIR)/userland/bin/crt0.o $(BUILD_DIR)/initrd/usr/lib/crt1.o
+	@cp $(SRC_DIR)/userland/bin/empty.o $(BUILD_DIR)/initrd/usr/lib/crti.o
+	@cp $(SRC_DIR)/userland/bin/empty.o $(BUILD_DIR)/initrd/usr/lib/crtn.o
+	@cp $(SRC_DIR)/userland/libc/*.h $(BUILD_DIR)/initrd/usr/include/
+	@cp $(SRC_DIR)/userland/libc/sys/*.h $(BUILD_DIR)/initrd/usr/include/sys/
+	@cp $(SRC_DIR)/userland/libc/*.h $(BUILD_DIR)/initrd/usr/include/libc/
+	@cp $(SRC_DIR)/userland/libc/*.h $(BUILD_DIR)/initrd/usr/local/include/
 
 	@printf "$(YELLOW)[COPY]$(RESET) Wallpapers..."
 	@for f in $(SRC_DIR)/images/wallpapers/*; do \
@@ -291,6 +313,7 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
 	@if [ -f README.md ]; then printf "  -> README.md"; cp README.md $(BUILD_DIR)/initrd/; fi
 	@if [ -f LICENSE ]; then printf "  -> LICENSE"; cp LICENSE $(BUILD_DIR)/initrd/; fi
 	@if [ -f limine.conf ]; then printf "  -> limine.conf"; cp limine.conf $(BUILD_DIR)/initrd/; fi
+	@if [ -f $(SRC_DIR)/userland/gui/about.c ]; then printf "  -> about.c"; cp $(SRC_DIR)/userland/gui/about.c $(BUILD_DIR)/initrd/; fi
 	
 	@printf "$(YELLOW)[TAR]$(RESET) Creating initrd.tar..."
 	cd $(BUILD_DIR)/initrd && COPYFILE_DISABLE=1 tar --exclude="._*" -cf ../initrd.tar *

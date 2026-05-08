@@ -76,6 +76,19 @@ FILE *fopen(const char *path, const char *mode) {
     return f;
 }
 
+FILE *fdopen(int fd, const char *mode) {
+    (void)mode;
+    if (fd < 0) return NULL;
+    FILE *f = (FILE *)malloc(sizeof(FILE));
+    if (!f) return NULL;
+    f->fd = fd;
+    f->eof = 0;
+    f->err = 0;
+    f->has_ungetc = 0;
+    f->ungetc_char = 0;
+    return f;
+}
+
 FILE *freopen(const char *path, const char *mode, FILE *stream) {
     int fd;
     if (!stream) {
@@ -191,6 +204,10 @@ int getc(FILE *stream) {
         return EOF;
     }
     return (int)ch;
+}
+
+int fgetc(FILE *stream) {
+    return getc(stream);
 }
 
 int ungetc(int c, FILE *stream) {
