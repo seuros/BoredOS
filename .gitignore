@@ -31,3 +31,6 @@ limine
 /build/
 *.o
 disk.img
+disk.qcow2
+.gitignore
+disk.img
