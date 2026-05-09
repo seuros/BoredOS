@@ -404,6 +404,34 @@ static void load_settings_icons(void) {
     );
 }
 
+static int is_supported_image(const char *name) {
+    int len = 0; while (name[len]) len++;
+    if (len < 4) return 0;
+    
+    const char *last_dot = NULL;
+    for (int i = 0; name[i]; i++) if (name[i] == '.') last_dot = &name[i];
+    if (!last_dot) return 0;
+    
+    char ext[8];
+    int elen = 0;
+    for (int i = 1; last_dot[i] && elen < 7; i++) {
+        char c = last_dot[i];
+        if (c >= 'A' && c <= 'Z') c += 32;
+        ext[elen++] = c;
+    }
+    ext[elen] = 0;
+    
+    if (strcmp(ext, "jpg") == 0 || strcmp(ext, "jpeg") == 0 || 
+        strcmp(ext, "png") == 0 || strcmp(ext, "bmp") == 0 ||
+        strcmp(ext, "tga") == 0 || strcmp(ext, "psd") == 0 ||
+        strcmp(ext, "hdr") == 0 || strcmp(ext, "pic") == 0 ||
+        strcmp(ext, "pnm") == 0 || strcmp(ext, "ppm") == 0 ||
+        strcmp(ext, "pgm") == 0) {
+        return 1;
+    }
+    return 0;
+}
+
 static void decode_wallpapers_task(void *arg) {
     (void)arg;
     wallpaper_count = 0;
@@ -414,13 +442,7 @@ static void decode_wallpapers_task(void *arg) {
     for (int i = 0; i < count && wallpaper_count < MAX_WALLPAPERS; i++) {
         if (info[i].is_directory) continue; // Skip directories
         
-        // check if .jpg (case-insensitive)
-        int len = 0; while (info[i].name[len]) len++;
-        if (len < 4) continue;
-        char c1 = info[i].name[len-1]; if (c1 >= 'A' && c1 <= 'Z') c1 += 32;
-        char c2 = info[i].name[len-2]; if (c2 >= 'A' && c2 <= 'Z') c2 += 32;
-        char c3 = info[i].name[len-3]; if (c3 >= 'A' && c3 <= 'Z') c3 += 32;
-        if (c1 != 'g' || c2 != 'p' || c3 != 'j') continue;
+        if (!is_supported_image(info[i].name)) continue;
 
         wallpaper_entry_t *wp = &wallpapers[wallpaper_count];
         // Set path
@@ -429,9 +451,12 @@ static void decode_wallpapers_task(void *arg) {
         int nl = 0; while (info[i].name[nl]) { wp->path[pl+nl] = info[i].name[nl]; nl++; }
         wp->path[pl+nl] = 0;
 
-        // Set name (strip .jpg)
-        for (int j = 0; j < nl - 4 && j < 63; j++) wp->name[j] = info[i].name[j];
-        wp->name[(nl-4 < 63) ? nl-4 : 63] = 0;
+        // Set name (strip extension)
+        int dot_idx = -1;
+        for (int j = 0; info[i].name[j]; j++) if (info[i].name[j] == '.') dot_idx = j;
+        int name_len = (dot_idx != -1) ? dot_idx : nl;
+        for (int j = 0; j < name_len && j < 63; j++) wp->name[j] = info[i].name[j];
+        wp->name[(name_len < 63) ? name_len : 63] = 0;
 
         char cache_path[256];
         int cp = 0;
