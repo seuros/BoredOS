@@ -362,5 +362,8 @@ int main(int argc, char **argv) {
 
     if (ret != 0) { printf("[ERROR] Partition write failed.\n"); return 1; }
     printf("Partition table written to /dev/%s.\n", devname);
+    
+    sys_disk_rescan(devname);
+    
     return 0;
 }

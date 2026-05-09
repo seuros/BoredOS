@@ -120,11 +120,12 @@ static void ahci_port_rebase(ahci_port_state_t *ps) {
     if (!ps->cmd_tbl) return;
     mem_memset(ps->cmd_tbl, 0, cmd_tbl_size);
 
-    // Set command header 0 to point to our command table
     uint64_t ctba_phys = v2p((uint64_t)ps->cmd_tbl);
-    ps->cmd_list[0].ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
-    ps->cmd_list[0].ctbau = (uint32_t)(ctba_phys >> 32);
-    ps->cmd_list[0].prdtl = 1;  // 1 PRDT entry default
+    for (int i = 0; i < 32; i++) {
+        ps->cmd_list[i].ctba = (uint32_t)(ctba_phys & 0xFFFFFFFF);
+        ps->cmd_list[i].ctbau = (uint32_t)(ctba_phys >> 32);
+        ps->cmd_list[i].prdtl = 1;  
+    }
 
     // Clear error and interrupt status
     port->serr = 0xFFFFFFFF;
