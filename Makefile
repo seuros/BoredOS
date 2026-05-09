@@ -202,6 +202,8 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
 	mkdir -p $(BUILD_DIR)/initrd/Library/conf
 	mkdir -p $(BUILD_DIR)/initrd/Library/bsh
 	mkdir -p $(BUILD_DIR)/initrd/Library/BWM/Wallpaper
+	mkdir -p $(BUILD_DIR)/initrd/Library/art
+	mkdir -p $(BUILD_DIR)/initrd/Library/images/branding
 	mkdir -p $(BUILD_DIR)/initrd/docs
 	mkdir -p $(BUILD_DIR)/initrd/boot
 	mkdir -p $(BUILD_DIR)/initrd/mnt
@@ -272,6 +274,18 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
 		fi \
 	done
 
+	@printf "$(YELLOW)[COPY]$(RESET) BoredOS icons..."
+	@mkdir -p $(BUILD_DIR)/initrd/Library/images/icons/boredos
+	@for f in $(SRC_DIR)/images/icons/boredos/*.png; do \
+		if [ -f "$$f" ]; then \
+			printf "  -> $$f"; \
+			cp "$$f" $(BUILD_DIR)/initrd/Library/images/icons/boredos/; \
+		fi \
+	done
+
+	@printf "$(YELLOW)[COPY]$(RESET) Branding assets..."
+	@cp -r branding/* $(BUILD_DIR)/initrd/Library/images/branding/
+
 	@printf "$(YELLOW)[COPY]$(RESET) Fonts..."
 	@for f in $(SRC_DIR)/fonts/*.ttf; do \
 		if [ -f "$$f" ]; then \
@@ -295,6 +309,9 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
 
 	@printf "$(YELLOW)[COPY]$(RESET) DOOM assets..."
 	@if [ -f $(SRC_DIR)/userland/games/doom/doom1.wad ]; then printf "  -> doom1.wad"; cp $(SRC_DIR)/userland/games/doom/doom1.wad $(BUILD_DIR)/initrd/Library/DOOM/; fi
+
+	@printf "$(YELLOW)[COPY]$(RESET) ASCII art..."
+	@if [ -f $(SRC_DIR)/library/art/boredos.txt ]; then printf "  -> boredos.txt"; cp $(SRC_DIR)/library/art/boredos.txt $(BUILD_DIR)/initrd/Library/art/; fi
 
 	@printf "$(YELLOW)[COPY]$(RESET) Documentation..."
 	@for f in $$(find docs -name '*.md' 2>/dev/null); do \
@@ -338,7 +355,7 @@ $(ISO_IMAGE): $(KERNEL_ELF) $(BUILD_DIR)/initrd.tar limine.conf limine-setup
 	printf "    module_path: boot():/initrd.tar" >> $(ISO_DIR)/limine.conf
 	
 	@printf "$(YELLOW)[COPY]$(RESET) Optional splash image..."
-	@if [ -f splash.jpg ]; then printf "  -> splash.jpg"; cp splash.jpg $(ISO_DIR)/; else printf "  -> no splash.jpg found"; fi
+	@if [ -f branding/splash.jpg ]; then printf "  -> splash.jpg"; cp branding/splash.jpg $(ISO_DIR)/splash.jpg; else printf "  -> no splash.jpg found"; fi
 	
 	@printf "$(YELLOW)[COPY]$(RESET) Limine boot files..."
 	cp limine/limine-bios.sys $(ISO_DIR)/

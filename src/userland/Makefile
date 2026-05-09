@@ -77,6 +77,9 @@ $(BIN_DIR)/%.o: %.c | $(BIN_DIR)
 $(BIN_DIR)/viewer.elf: $(LIBC_OBJS) $(BIN_DIR)/viewer.o $(BIN_DIR)/stb_image.o $(BIN_DIR)/viewer.note.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
+$(BIN_DIR)/about.elf: $(LIBC_OBJS) $(BIN_DIR)/about.o $(BIN_DIR)/stb_image.o $(BIN_DIR)/about.note.o
+	$(LD) $(LDFLAGS) $^ -o $@
+
 $(BIN_DIR)/settings.elf: $(LIBC_OBJS) $(BIN_DIR)/settings.o $(BIN_DIR)/stb_image.o $(BIN_DIR)/settings.note.o
 	$(LD) $(LDFLAGS) $^ -o $@
 
