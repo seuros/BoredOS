@@ -2850,6 +2850,17 @@ Window* wm_find_window_by_title(const char *title) {
 void wm_remove_window(Window *win) {
     if (!win) return;
     
+    // Safety: Detach from owner first to prevent UAF in GUI syscalls.
+    // By clearing the owner's pointer here, any concurrent or future syscalls for this 
+    // window handle will fail validation rather than accessing freed memory.
+    if (win->owner_pid != 0) {
+        extern process_t* process_get_by_pid(uint32_t pid);
+        process_t *proc = process_get_by_pid(win->owner_pid);
+        if (proc && proc->ui_window == (void*)win) {
+            proc->ui_window = NULL;
+        }
+    }
+    
     serial_write("WM: Removing window '");
     if (win->title) serial_write(win->title);
     else serial_write("unknown");

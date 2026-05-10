@@ -69,6 +69,9 @@ struct Window {
     void (*handle_close)(Window *win);
     void (*handle_resize)(Window *win, int w, int h);
     bool resizable;
+    // The PID of the process that created/owns this window.
+    // Used to safely detach the window from the owner's process_t on destruction.
+    uint32_t owner_pid;
 };
 
 #define LUMOS_MAX_RESULTS 6

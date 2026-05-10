@@ -325,6 +325,9 @@ static uint64_t gui_cmd_window_create(const syscall_args_t *args) {
     win->handle_resize = user_window_resize;
     win->resizable = false; // Default to false, can be enabled via syscall
     
+    // Store owner PID to allow safe detachment during window destruction.
+    // This prevents Use-After-Free when a process continues drawing after its window is closed.
+    win->owner_pid = proc->pid;
     proc->ui_window = win;
     wm_add_window(win);
     wm_mark_dirty(0, 0, get_screen_width(), 30);
@@ -336,20 +339,18 @@ static uint64_t gui_cmd_draw_rect(const syscall_args_t *args) {
     Window *win = (Window *)args->arg2;
     uint64_t *u_params = (uint64_t *)args->arg3;
     uint32_t color = (uint32_t)args->arg4;
-    if (win && u_params) {
+    process_t *proc = process_get_current();
+
+    if (win && u_params && proc && proc->ui_window == win) {
         uint64_t params[4];
         for (int i = 0; i < 4; i++) params[i] = u_params[i];
 
         extern void draw_rect(int x, int y, int w, int h, uint32_t color);
         extern void graphics_set_render_target(uint32_t *buffer, int w, int h);
         
-        uint64_t rflags;
-        bool use_wm_lock = (win->pixels == NULL);
-        if (use_wm_lock) rflags = wm_lock_acquire();
-        else rflags = spinlock_acquire_irqsave(&win->lock);
+        uint64_t rflags = spinlock_acquire_irqsave(&win->lock);
         
         if (win->pixels) {
-            // Strict user-to-window relative clamping
             int rx = (int)params[0]; int ry = (int)params[1];
             int rw = (int)params[2]; int rh = (int)params[3];
             if (rx < 0) { rw += rx; rx = 0; }
@@ -363,11 +364,12 @@ static uint64_t gui_cmd_draw_rect(const syscall_args_t *args) {
                 graphics_set_render_target(NULL, 0, 0);
             }
         } else {
-            draw_rect(win->x + params[0], win->y + params[1], params[2], params[3], color);
+            uint64_t wflags = wm_lock_acquire();
+            draw_rect(win->x + (int)params[0], win->y + (int)params[1], (int)params[2], (int)params[3], color);
+            wm_lock_release(wflags);
         }
         
-        if (use_wm_lock) wm_lock_release(rflags);
-        else spinlock_release_irqrestore(&win->lock, rflags);
+        spinlock_release_irqrestore(&win->lock, rflags);
     }
     return 0;
 }
@@ -376,17 +378,16 @@ static uint64_t gui_cmd_draw_rounded_rect_filled(const syscall_args_t *args) {
     Window *win = (Window *)args->arg2;
     uint64_t *u_params = (uint64_t *)args->arg3;
     uint32_t color = (uint32_t)args->arg4;
-    if (win && u_params) {
+    process_t *proc = process_get_current();
+
+    if (win && u_params && proc && proc->ui_window == win) {
         uint64_t params[5];
         for (int i = 0; i < 5; i++) params[i] = u_params[i];
 
         extern void draw_rounded_rect_filled(int x, int y, int w, int h, int radius, uint32_t color);
         extern void graphics_set_render_target(uint32_t *buffer, int w, int h);
         
-        uint64_t rflags;
-        bool use_wm_lock = (win->pixels == NULL);
-        if (use_wm_lock) rflags = wm_lock_acquire();
-        else rflags = spinlock_acquire_irqsave(&win->lock);
+        uint64_t rflags = spinlock_acquire_irqsave(&win->lock);
         
         if (win->pixels) {
             int rx = (int)params[0]; int ry = (int)params[1];
@@ -404,8 +405,7 @@ static uint64_t gui_cmd_draw_rounded_rect_filled(const syscall_args_t *args) {
             }
         }
         
-        if (use_wm_lock) wm_lock_release(rflags);
-        else spinlock_release_irqrestore(&win->lock, rflags);
+        spinlock_release_irqrestore(&win->lock, rflags);
     }
     return 0;
 }
@@ -417,7 +417,9 @@ static uint64_t gui_cmd_draw_string(const syscall_args_t *args) {
     int uy = coords >> 32;
     const char *user_str = (const char *)args->arg4;
     uint32_t color = (uint32_t)args->arg5;
-    if (win && user_str) {
+    process_t *proc = process_get_current();
+
+    if (win && user_str && proc && proc->ui_window == win) {
         extern void draw_string(int x, int y, const char *str, uint32_t color);
         extern void graphics_set_render_target(uint32_t *buffer, int w, int h);
         
@@ -430,10 +432,7 @@ static uint64_t gui_cmd_draw_string(const syscall_args_t *args) {
         }
         kernel_str[i] = 0;
 
-        uint64_t rflags;
-        bool use_wm_lock = (win->pixels == NULL);
-        if (use_wm_lock) rflags = wm_lock_acquire();
-        else rflags = spinlock_acquire_irqsave(&win->lock);
+        uint64_t rflags = spinlock_acquire_irqsave(&win->lock);
         
         ttf_font_t *font = win->font ? (ttf_font_t*)win->font : graphics_get_current_ttf();
 
@@ -463,6 +462,7 @@ static uint64_t gui_cmd_draw_string(const syscall_args_t *args) {
                 graphics_set_render_target(NULL, 0, 0);
             }
         } else {
+            uint64_t wflags = wm_lock_acquire();
             if (font) {
                 int baseline = win->y + uy + font_manager_get_font_ascent_scaled(font, font->pixel_height) - 2;
                 int cur_x = win->x + ux;
@@ -483,10 +483,10 @@ static uint64_t gui_cmd_draw_string(const syscall_args_t *args) {
             } else {
                 draw_string(win->x + ux, win->y + uy, kernel_str, color);
             }
+            wm_lock_release(wflags);
         }
         
-        if (use_wm_lock) wm_lock_release(rflags);
-        else spinlock_release_irqrestore(&win->lock, rflags);
+        spinlock_release_irqrestore(&win->lock, rflags);
     }
     return 0;
 }
@@ -714,14 +714,13 @@ static uint64_t gui_cmd_draw_image(const syscall_args_t *args) {
     Window *win = (Window *)args->arg2;
     uint64_t *u_params = (uint64_t *)args->arg3;
     uint32_t *image_data = (uint32_t *)args->arg4;
-    if (win && u_params && image_data) {
+    process_t *proc = process_get_current();
+
+    if (win && u_params && image_data && proc && proc->ui_window == win) {
         uint64_t params[4];
         for (int i = 0; i < 4; i++) params[i] = u_params[i];
         
-        uint64_t rflags;
-        bool use_wm_lock = (win->pixels == NULL);
-        if (use_wm_lock) rflags = wm_lock_acquire();
-        else rflags = spinlock_acquire_irqsave(&win->lock);
+        uint64_t rflags = spinlock_acquire_irqsave(&win->lock);
         
         if (win->pixels) {
             int rx = (int)params[0]; int ry = (int)params[1];
@@ -755,17 +754,17 @@ static uint64_t gui_cmd_draw_image(const syscall_args_t *args) {
             }
         }
         
-        if (use_wm_lock) wm_lock_release(rflags);
-        else spinlock_release_irqrestore(&win->lock, rflags);
+        spinlock_release_irqrestore(&win->lock, rflags);
     }
     return 0;
 }
 
 static uint64_t gui_cmd_mark_dirty(const syscall_args_t *args) {
-    uint64_t rflags = wm_lock_acquire();
     Window *win = (Window *)args->arg2;
     uint64_t *u_params = (uint64_t *)args->arg3;
-    if (win && u_params) {
+    process_t *proc = process_get_current();
+
+    if (win && u_params && proc && proc->ui_window == win) {
         uint64_t params[4];
         for (int i = 0; i < 4; i++) params[i] = u_params[i];
 
@@ -776,9 +775,11 @@ static uint64_t gui_cmd_mark_dirty(const syscall_args_t *args) {
             mem_memcpy(win->comp_pixels, win->pixels, (size_t)win->w * (win->h - 20) * 4);
             spinlock_release_irqrestore(&win->lock, win_rflags);
         }
+
+        uint64_t rflags = wm_lock_acquire();
         wm_mark_dirty(win->x + (int)params[0], win->y + (int)params[1], (int)params[2], (int)params[3]);
+        wm_lock_release(rflags);
     }
-    wm_lock_release(rflags);
     return 0;
 }
 
@@ -862,11 +863,15 @@ static uint64_t gui_cmd_get_font_height_scaled(const syscall_args_t *args) {
 
 static uint64_t gui_cmd_window_set_resizable(const syscall_args_t *args) {
     Window *win = (Window *)args->arg2;
-    if (win) {
+    process_t *proc = process_get_current();
+    if (win && proc && proc->ui_window == win) {
+        uint64_t flags = spinlock_acquire_irqsave(&win->lock);
+        win->resizable = (args->arg3 != 0);
+        spinlock_release_irqrestore(&win->lock, flags);
+        
         extern void serial_write(const char *str);
         serial_write("[WM] Resizable: ");
         serial_write(args->arg3 ? "true\n" : "false\n");
-        win->resizable = (args->arg3 != 0);
     }
     return 0;
 }
@@ -874,7 +879,9 @@ static uint64_t gui_cmd_window_set_resizable(const syscall_args_t *args) {
 static uint64_t gui_cmd_window_set_title(const syscall_args_t *args) {
     Window *win = (Window *)args->arg2;
     const char *user_title = (const char *)args->arg3;
-    if (win && user_title) {
+    process_t *proc = process_get_current();
+
+    if (win && user_title && proc && proc->ui_window == win) {
         int title_len = 0;
         while (user_title[title_len] && title_len < 255) title_len++;
         
@@ -885,10 +892,15 @@ static uint64_t gui_cmd_window_set_title(const syscall_args_t *args) {
             }
             kernel_title[title_len] = '\0';
             
-            if (win->title && win->title != (char*)"Unknown") {
-                kfree(win->title);
-            }
+            uint64_t flags = spinlock_acquire_irqsave(&win->lock);
+            char *old_title = win->title;
             win->title = kernel_title;
+            spinlock_release_irqrestore(&win->lock, flags);
+
+            if (old_title && old_title != (char*)"Unknown") {
+                kfree(old_title);
+            }
+            
             wm_mark_dirty(win->x, win->y - 20, win->w, 20); // Mark title bar dirty
             wm_refresh();
         }

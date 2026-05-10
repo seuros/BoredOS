@@ -3,6 +3,7 @@
 #include "font_manager.h"
 #include "stb_truetype.h"
 #include "fat32.h"
+#include "spinlock.h"
 #include <stddef.h>
 
 // Simple math implementations for stb_truetype
@@ -78,6 +79,9 @@ typedef struct {
     unsigned char *bitmap;
 } font_cache_entry_t;
 static font_cache_entry_t font_cache[FONT_CACHE_SIZE] = {0};
+// Global lock for the glyph cache. Prevents multi-core race conditions where 
+// bitmaps were being freed while in use by other cores.
+static spinlock_t font_cache_lock = SPINLOCK_INIT;
 
 bool font_manager_init(void) {
     return true;
@@ -202,6 +206,8 @@ void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, uint32_t co
     if (!font) return;
 
     uint32_t hash = (codepoint * 31 + (uint32_t)scale * 73) % FONT_CACHE_SIZE;
+    
+    uint64_t fflags = spinlock_acquire_irqsave(&font_cache_lock);
     font_cache_entry_t *entry = &font_cache[hash];
     
     unsigned char *bitmap = NULL;
@@ -219,16 +225,27 @@ void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, uint32_t co
             real_scale = stbtt_ScaleForPixelHeight(info, scale);
         }
 
+        // Drop lock during slow decompression to avoid contention
+        spinlock_release_irqrestore(&font_cache_lock, fflags);
         bitmap = stbtt_GetCodepointBitmap(info, 0, real_scale, codepoint, &w, &h, &xoff, &yoff);
+        fflags = spinlock_acquire_irqsave(&font_cache_lock);
         
-        if (entry->bitmap) stbtt_FreeBitmap(entry->bitmap, NULL);
-        entry->codepoint = codepoint;
-        entry->scale = scale;
-        entry->font = font;
-        entry->w = w; entry->h = h; entry->xoff = xoff; entry->yoff = yoff;
-        entry->bitmap = bitmap;
+        // Check if someone else filled it while we were away
+        if (entry->bitmap && entry->codepoint == codepoint && entry->scale == scale && entry->font == font) {
+             if (bitmap) stbtt_FreeBitmap(bitmap, NULL);
+             bitmap = entry->bitmap;
+             w = entry->w; h = entry->h; xoff = entry->xoff; yoff = entry->yoff;
+        } else {
+            if (entry->bitmap) stbtt_FreeBitmap(entry->bitmap, NULL);
+            entry->codepoint = codepoint;
+            entry->scale = scale;
+            entry->font = font;
+            entry->w = w; entry->h = h; entry->xoff = xoff; entry->yoff = yoff;
+            entry->bitmap = bitmap;
+        }
     }
-
+    
+    // Hold lock while using the bitmap to prevent eviction
     if (bitmap) {
         for (int row = 0; row < h; row++) {
             for (int col = 0; col < w; col++) {
@@ -242,6 +259,7 @@ void font_manager_render_char_scaled(ttf_font_t *font, int x, int y, uint32_t co
             }
         }
     }
+    spinlock_release_irqrestore(&font_cache_lock, fflags);
 }
 
 void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, uint32_t codepoint, uint32_t color, float scale, float slope, void (*put_pixel_fn)(int, int, uint32_t)) {
@@ -249,6 +267,7 @@ void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, uint32_t co
     if (!font) return;
 
     uint32_t hash = (codepoint * 31 + (uint32_t)scale * 73) % FONT_CACHE_SIZE;
+    uint64_t fflags = spinlock_acquire_irqsave(&font_cache_lock);
     font_cache_entry_t *entry = &font_cache[hash];
     
     unsigned char *bitmap = NULL;
@@ -266,14 +285,22 @@ void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, uint32_t co
             real_scale = stbtt_ScaleForPixelHeight(info, scale);
         }
 
+        spinlock_release_irqrestore(&font_cache_lock, fflags);
         bitmap = stbtt_GetCodepointBitmap(info, 0, real_scale, codepoint, &w, &h, &xoff, &yoff);
-        
-        if (entry->bitmap) stbtt_FreeBitmap(entry->bitmap, NULL);
-        entry->codepoint = codepoint;
-        entry->scale = scale;
-        entry->font = font;
-        entry->w = w; entry->h = h; entry->xoff = xoff; entry->yoff = yoff;
-        entry->bitmap = bitmap;
+        fflags = spinlock_acquire_irqsave(&font_cache_lock);
+
+        if (entry->bitmap && entry->codepoint == codepoint && entry->scale == scale && entry->font == font) {
+             if (bitmap) stbtt_FreeBitmap(bitmap, NULL);
+             bitmap = entry->bitmap;
+             w = entry->w; h = entry->h; xoff = entry->xoff; yoff = entry->yoff;
+        } else {
+            if (entry->bitmap) stbtt_FreeBitmap(entry->bitmap, NULL);
+            entry->codepoint = codepoint;
+            entry->scale = scale;
+            entry->font = font;
+            entry->w = w; entry->h = h; entry->xoff = xoff; entry->yoff = yoff;
+            entry->bitmap = bitmap;
+        }
     }
 
     if (bitmap) {
@@ -291,6 +318,7 @@ void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, uint32_t co
             }
         }
     }
+    spinlock_release_irqrestore(&font_cache_lock, fflags);
 }
 
 int font_manager_get_string_width(ttf_font_t *font, const char *s) {
