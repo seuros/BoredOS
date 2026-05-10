@@ -297,47 +297,6 @@ static void boot_parse_cmdline(const char *cmdline, uint32_t media_type) {
     }
 }
 
-static bool usage_policy_prompt(void) {
-    kconsole_set_active(true);
-    serial_write("BoredOS - Please read the Usage Policy provided with this software before continuing.\n");
-    serial_write("Do you agree to the terms? [y/N]\n");
-
-    while (1) {
-        if ((inb(0x64) & 1) == 0) {
-            asm volatile("pause");
-            continue;
-        }
-
-        uint8_t scancode = inb(0x60);
-        keyboard_event_t ev;
-        if (!keyboard_handle_set1_scancode(scancode, &ev)) {
-            continue;
-        }
-
-        if (!ev.pressed) {
-            continue;
-        }
-
-        if (ev.keycode == KEY_ENTER || ev.keycode == KEY_KP_ENTER) {
-            serial_write("\n");
-            return false;
-        }
-
-        if (!ev.is_text) {
-            continue;
-        }
-
-        if (ev.codepoint == 'y' || ev.codepoint == 'Y') {
-            serial_write("\n");
-            return true;
-        }
-
-        if (ev.codepoint == 'n' || ev.codepoint == 'N') {
-            serial_write("\n");
-            return false;
-        }
-    }
-}
 
 void kmain(void) {
     init_serial();
@@ -544,18 +503,6 @@ void kmain(void) {
         smp_init(NULL);
     }
 
-    bool bypass_tos = false;
-    if (kernel_file_request.response != NULL && kernel_file_request.response->kernel_file != NULL) {
-        const char *cmdline = kernel_file_request.response->kernel_file->cmdline;
-        if (cmdline != NULL && k_strstr(cmdline, "--accept-tos") != NULL) {
-            bypass_tos = true;
-        }
-    }
-
-    if (!bypass_tos && !usage_policy_prompt()) {
-        log_fail("Usage policy not accepted, halting");
-        hcf();
-    }
 
     wm_init();
 

@@ -13,7 +13,6 @@
 
 **Root selection** uses `root=/dev/<partition>` in `cmdline:` to choose the writable root partition (for example `root=/dev/sda2`).
 
-**TOS acceptance** uses `--accept-tos` in `cmdline:` when you want to bypass the prompt.
 
 **Live vs disk override** supports `--live` and `--disk` in `cmdline:`. Use `--live` for ISO/USB live boots and `--disk` for installed systems.
 

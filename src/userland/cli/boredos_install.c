@@ -393,7 +393,7 @@ int main(int argc, char **argv) {
                     "/BoredOS\n"
                     "    protocol: limine\n"
                     "    path: boot():/boredos.elf\n"
-                    "    cmdline: -v root=/dev/%s --disk --accept-tos\n"
+                    "    cmdline: -v root=/dev/%s --disk\n"
                     "    module_path: boot():/initrd.tar\n",
                     root_dev);
                 if (len > 0) sys_write_fs(fd, cfg, len);
@@ -413,7 +413,7 @@ int main(int argc, char **argv) {
                     "    protocol: limine\n"
                     "    root: boot()\n"
                     "    path: /boredos.elf\n"
-                    "    cmdline: -v root=/dev/%s --disk --accept-tos\n"
+                    "    cmdline: -v root=/dev/%s --disk\n"
                     "    module_path: /initrd.tar\n",
                     root_dev);
                 if (len > 0) sys_write_fs(fd, cfg, len);
