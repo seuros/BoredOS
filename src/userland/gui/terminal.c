@@ -793,6 +793,11 @@ static void draw_session(TerminalSession *s) {
         int input_end = input_start + cmd_char_len;
         if (input_end > g_cols) input_end = g_cols;
 
+        char row_buf[512];
+        int buf_idx = 0;
+        uint32_t current_color = 0;
+        int start_col = -1;
+
         for (int col = 0; col < g_cols; col++) {
             uint32_t ch = ' ';
             uint32_t color = s->fg_color;
@@ -809,13 +814,28 @@ static void draw_session(TerminalSession *s) {
                 }
             }
 
-            char out[5];
-            int len = text_encode_utf8(ch, out);
-            out[len] = 0;
-            
-            int x = col * g_char_w;
-            int y = base_y + row * g_line_h;
-            ui_draw_string(g_win, x, y, out, color);
+            if (start_col == -1) {
+                start_col = col;
+                current_color = color;
+                buf_idx = 0;
+            } else if (color != current_color || buf_idx > 480) {
+                // Flush buffer
+                row_buf[buf_idx] = 0;
+                ui_draw_string(g_win, start_col * g_char_w, base_y + row * g_line_h, row_buf, current_color);
+                
+                start_col = col;
+                current_color = color;
+                buf_idx = 0;
+            }
+
+            char utf8[5];
+            int len = text_encode_utf8(ch, utf8);
+            for (int k = 0; k < len; k++) row_buf[buf_idx++] = utf8[k];
+        }
+
+        if (start_col != -1 && buf_idx > 0) {
+            row_buf[buf_idx] = 0;
+            ui_draw_string(g_win, start_col * g_char_w, base_y + row * g_line_h, row_buf, current_color);
         }
     }
 
@@ -1265,8 +1285,9 @@ int main(void) {
         if (dirty) {
             draw_tabs();
             draw_session(&g_tabs[g_active_tab]);
+            dirty = false;
         } else {
-            sys_yield();
+            sys_system(SYSTEM_CMD_SLEEP, 50, 0, 0, 0);
         }
     }
 
