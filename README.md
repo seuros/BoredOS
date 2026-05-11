@@ -99,10 +99,17 @@
     </a><br />
     Artwork
   </td>
-    <td align="center">
+  <td align="center">
     <a href="https://github.com/zeyadhost">
       <img src="https://github.com/zeyadhost.png?size=80" width="60" /><br />
       <sub><b>Zeyadhost</b></sub>
+    </a><br />
+    Contributor
+  </td>
+  <td align="center">
+    <a href="https://github.com/naplon74">
+      <img src="https://github.com/naplon74.png?size=80" width="60" /><br />
+      <sub><b>Artwork</b></sub>
     </a><br />
     Contributor
   </td>
