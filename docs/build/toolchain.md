@@ -74,13 +74,14 @@ x86_64-elf-gcc --version
 > **Note**: Building the cross-compiler can take 20-30 minutes depending on system performance. This is a one-time setup cost.
 
 ## Installing the Toolchain on Windows
-
 ### Recommended Environment: MSYS2
 
-On Windows, the recommended way to build BoredOS is using **MSYS2**.  
-MSYS2 provides a Unix-like environment with the `pacman` package manager, making it easy to install the required development tools and the `x86_64-elf` cross-toolchain directly from the repositories.
+On Windows, the recommended way to build BoredOS is using **MSYS2**.
+MSYS2 provides a Unix-like environment with the `pacman` package manager, making it easy to install the required development tools.
 
-### 1. Install MSYS2
+---
+
+## 1. Install MSYS2
 
 Download and install MSYS2 from the official website:
 
@@ -90,7 +91,7 @@ After installation, launch the **MSYS2 UCRT64** terminal.
 
 ---
 
-### 2. Update MSYS2
+## 2. Update MSYS2
 
 Before installing packages, fully update the environment:
 
@@ -98,7 +99,8 @@ Before installing packages, fully update the environment:
 pacman -Syu
 ```
 
-You may be asked to close the terminal after the first update.  
+You may be asked to close the terminal after the first update.
+
 If so:
 
 1. Close the MSYS2 window
@@ -113,35 +115,78 @@ Repeat until no further updates are available.
 
 ---
 
-### 3. Install Required Packages
+## 3. Install Required Packages
 
 Install the required development tools:
 
 ```bash
-pacman -S \
-    make \
-    git \
-    nasm \
-    xorriso \
-    qemu-system-x86_64
+pacman -S make nasm xorriso git
 ```
 
 ---
 
-### 4. Install the x86_64 ELF Toolchain
+## 4. Install QEMU for Windows
 
-MSYS2 provides the full `x86_64-elf` cross-compilation toolchain directly through `pacman`.
+Download the Windows version of QEMU from:
 
-Install it with:
+- https://qemu.weilnetz.de/w64/
+
+Install QEMU normally and make sure the installation directory is added to your Windows `PATH`.
+
+You can verify the installation with:
 
 ```bash
-pacman -S \
-    mingw-w64-ucrt-x86_64-x86_64-elf-gcc \
-    mingw-w64-ucrt-x86_64-x86_64-elf-binutils
+qemu-system-x86_64 --version
 ```
 
-This installs:
+---
 
-- `x86_64-elf-gcc`
-- `x86_64-elf-ld`
-- other required ELF binutils
+## 5. Install the x86_64 ELF Cross Toolchain
+
+Download the prebuilt `x86_64-elf` toolchain for Windows:
+
+- https://github.com/lordmilko/i686-elf-tools/releases/download/15.2.0/x86_64-elf-tools-windows.zip
+
+Extract the archive somewhere convenient.
+
+---
+
+## 6. Add the Toolchain to PATH
+
+Inside the **MSYS2 UCRT64** terminal, add the toolchain binaries to your `PATH`:
+
+```bash
+export PATH="/c/Users/your/path/to/the/binaries/x86_64-elf-tools-windows/bin:$PATH"
+```
+
+To make this permanent, add the line to your `~/.bashrc` file:
+
+```bash
+echo 'export PATH="/c/Users/your/path/to/the/binaries/x86_64-elf-tools-windows/bin:$PATH"' >> ~/.bashrc
+```
+
+Then reload the shell:
+
+```bash
+source ~/.bashrc
+```
+
+---
+
+## 7. Verify the Installation
+
+Verify that the cross compiler is available:
+
+```bash
+x86_64-elf-gcc --version
+```
+
+You should also verify NASM and QEMU:
+
+```bash
+nasm -v
+qemu-system-x86_64 --version
+```
+
+If all commands work, the development environment is correctly configured.
+
