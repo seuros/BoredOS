@@ -132,6 +132,8 @@ Download the Windows version of QEMU from:
 - https://qemu.weilnetz.de/w64/
 
 Install QEMU normally and make sure the installation directory is added to your Windows `PATH`.
+Note that if it breaks when building, you need too add `qemu-img` to your `PATH`:
+`export PATH="/c/Program Files/qemu:$PATH"`
 
 You can verify the installation with:
 
