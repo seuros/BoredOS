@@ -67,7 +67,7 @@ static void format_number(uint64_t num, char *out, bool use_comma) {
     out[out_idx] = '\0';
 }
 
-static void format_human(uint64_t bytes, char *out, bool pow1000, bool use_comma) {
+static void format_human_readable(uint64_t bytes, char *out, bool pow1000, bool use_comma) {
     const char *suffixes1024[] = {"", "K", "M", "G", "T", "P"};
     const char *suffixes1000[] = {"", "k", "M", "G", "T", "P"};
     uint64_t base = pow1000 ? 1000 : 1024;
@@ -104,10 +104,10 @@ static void format_size(uint64_t bytes, char *out) {
             format_number(blocks, out, opt_comma);
             break;
         case MULTIPLIER_H_1000:
-            format_human(bytes, out, true, opt_comma);
+            format_human_readable(bytes, out, true, opt_comma);
             break;
         case MULTIPLIER_H_1024:
-            format_human(bytes, out, false, opt_comma);
+            format_human_readable(bytes, out, false, opt_comma);
             break;
         case MULTIPLIER_K:
         default:
