@@ -2,9 +2,9 @@
 #include <string.h>
 #include "syscall.h"
 
-int type = 0;           // 0:nothing 1:file 2:dir
+int type = 0;           // 0 is nothing, 1 is file, 2 is dir
 char *name = NULL;      
-char *dir = ".";
+char *dir = "."; // random char bc it needs to have anything in it
 
 // match exact name
 int match(const char *a, const char *b) {
