@@ -2,6 +2,8 @@
 // This software is released under the GNU General Public License v3.0. See LICENSE file for details.
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
 #include <syscall.h>
 #include <stdbool.h>
 #include <unistd.h>
@@ -325,6 +327,17 @@ static void set_color(uint32_t color) {
 
 static void reset_color(void) {
     sys_set_text_color(g_color_default);
+}
+
+static void shell_write(const char *buf, int len) {
+    if (!buf || len <= 0) return;
+    write(1, buf, (size_t)len);
+}
+
+static void shell_writeln(const char *buf) {
+    if (!buf) return;
+    shell_write(buf, (int)strlen(buf));
+    shell_write("\n", 1);
 }
 
 static void prompt_emit(const char *text, int len, char *out, int *out_idx, int max_len, bool do_write) {
@@ -986,18 +999,38 @@ static void show_matches(const char *prompt_tmpl, const char *line, int len, cha
 static int wait_for_pid_status(int pid, int *status) {
     while (1) {
         int child_status = 0;
+
         int rc = sys_waitpid(pid, &child_status, 1);
+
         if (rc == pid) {
             if (status) *status = child_status;
             return 0;
         }
+
         if (rc < 0) return -1;
+
         if (g_tty_id >= 0) {
             int fg = sys_tty_get_fg(g_tty_id);
             if (fg != pid) return -1;
         }
+
         sleep(10);
     }
+}
+
+static int wait_for_pid(int pid) {
+    int status = 0;
+
+    if (wait_for_pid_status(pid, &status) != 0)
+        return -1;
+
+    return status;
+}
+
+static int bsh_open_file(const char *path, const char *mode, bool *is_kernel) {
+    if (!path || !mode) return -1;
+    if (is_kernel) *is_kernel = true;
+    return sys_open(path, mode);
 }
 
 static void wait_for_pid(int pid) {
@@ -1136,7 +1169,7 @@ static int builtin_cd(int argc, char *argv[]) {
 static int builtin_pwd(void) {
     char cwd[256];
     if (getcwd(cwd, sizeof(cwd))) {
-        printf("%s\n", cwd);
+        shell_writeln(cwd);
         return 0;
     }
     return 1;
@@ -1144,10 +1177,10 @@ static int builtin_pwd(void) {
 
 static int builtin_echo(int argc, char *argv[]) {
     for (int i = 1; i < argc; i++) {
-        if (i > 1) sys_write(1, " ", 1);
-        sys_write(1, argv[i], (int)strlen(argv[i]));
+        if (i > 1) shell_write(" ", 1);
+        shell_write(argv[i], (int)strlen(argv[i]));
     }
-    sys_write(1, "\n", 1);
+    shell_write("\n", 1);
     return 0;
 }
 
@@ -1165,7 +1198,7 @@ static int builtin_ls(int argc, char *argv[]) {
     }
     if (!info.is_directory) {
         set_color(g_color_file);
-        printf("%s\n", info.name);
+        shell_writeln(info.name);
         reset_color();
         return 0;
     }
@@ -1182,12 +1215,18 @@ static int builtin_ls(int argc, char *argv[]) {
     for (int i = 0; i < count; i++) {
         if (entries[i].is_directory) {
             set_color(g_color_dir);
-            printf("[DIR]  %s\n", entries[i].name);
+            shell_write("[DIR]  ", 7);
+            shell_writeln(entries[i].name);
         } else {
             set_color(g_color_file);
-            printf("[FILE] %s", entries[i].name);
+            shell_write("[FILE] ", 7);
+            shell_write(entries[i].name, (int)strlen(entries[i].name));
             set_color(g_color_size);
-            printf(" (%d bytes)\n", entries[i].size);
+            char size_buf[32];
+            itoa((int)entries[i].size, size_buf);
+            shell_write(" (", 2);
+            shell_write(size_buf, (int)strlen(size_buf));
+            shell_write(" bytes)\n", 8);
         }
     }
     reset_color();
@@ -1196,10 +1235,12 @@ static int builtin_ls(int argc, char *argv[]) {
 
 static int builtin_cat(int argc, char *argv[]) {
     if (argc < 2) {
-        set_color(g_color_error);
-        printf("Usage: cat <file>\n");
-        reset_color();
-        return 1;
+        char buffer[4096];
+        int bytes;
+        while ((bytes = read(0, buffer, sizeof(buffer))) > 0) {
+            shell_write(buffer, bytes);
+        }
+        return 0;
     }
 
     for (int i = 1; i < argc; i++) {
@@ -1213,7 +1254,7 @@ static int builtin_cat(int argc, char *argv[]) {
         char buffer[4096];
         int bytes;
         while ((bytes = sys_read(fd, buffer, sizeof(buffer))) > 0) {
-            sys_write(1, buffer, bytes);
+            shell_write(buffer, bytes);
         }
         sys_close(fd);
     }
@@ -1439,17 +1480,20 @@ static int builtin_man(int argc, char *argv[]) {
     char buffer[4096];
     int bytes;
     while ((bytes = sys_read(fd, buffer, sizeof(buffer))) > 0) {
-        sys_write(1, buffer, bytes);
+        shell_write(buffer, bytes);
     }
     sys_close(fd);
-    printf("\n");
+    shell_write("\n", 1);
     return 0;
 }
 
 static int builtin_alias(int argc, char *argv[]) {
     if (argc == 1) {
         for (int i = 0; i < g_alias_count; i++) {
-            printf("alias %s=%s\n", g_aliases[i].name, g_aliases[i].value);
+            shell_write("alias ", 6);
+            shell_write(g_aliases[i].name, (int)strlen(g_aliases[i].name));
+            shell_write("=", 1);
+            shell_writeln(g_aliases[i].value);
         }
         return 0;
     }
@@ -1460,7 +1504,10 @@ static int builtin_alias(int argc, char *argv[]) {
         if (*eq != '=') {
             const char *val = alias_get(argv[i]);
             if (val) {
-                printf("alias %s=%s\n", argv[i], val);
+                shell_write("alias ", 6);
+                shell_write(argv[i], (int)strlen(argv[i]));
+                shell_write("=", 1);
+                shell_writeln(val);
                 continue;
             }
             set_color(g_color_error);
@@ -1521,19 +1568,220 @@ static int execute_builtin(int argc, char *argv[]) {
     return -1;
 }
 
-static int execute_line_inner(const char *line, int depth) {
-    if (!line || !line[0]) return 0;
-    if (depth > 8) return 1;
+static bool is_builtin_name(const char *name) {
+    return str_eq(name, "cd") || str_eq(name, "pwd") || str_eq(name, "ls") ||
+           str_eq(name, "cat") || str_eq(name, "echo") || str_eq(name, "clear") ||
+           str_eq(name, "mkdir") || str_eq(name, "rm") || str_eq(name, "touch") ||
+           str_eq(name, "cp") || str_eq(name, "mv") || str_eq(name, "man") ||
+           str_eq(name, "alias") || str_eq(name, "unalias") || str_eq(name, ".") ||
+           str_eq(name, "exit");
+}
 
-    char line_copy[MAX_LINE];
-    str_copy(line_copy, line, sizeof(line_copy));
-    trim(line_copy);
-    if (!line_copy[0]) return 0;
-    if (line_copy[0] == '#') return 0;
+typedef enum {
+    TOK_WORD = 0,
+    TOK_PIPE,
+    TOK_GT,
+    TOK_GTGT,
+    TOK_LT,
+    TOK_AMP,
+    TOK_ANDAND,
+    TOK_OROR,
+    TOK_SEMI,
+    TOK_END
+} bsh_tok_type_t;
 
+typedef struct {
+    bsh_tok_type_t type;
+    char text[MAX_MATCH_LEN];
+} bsh_token_t;
+
+typedef struct {
     char *argv[MAX_ARGS];
-    int argc = split_args(line_copy, argv, MAX_ARGS);
+    int argc;
+    char *redir_in;
+    char *redir_out;
+    bool redir_append;
+} bsh_simple_cmd_t;
+
+#define MAX_TOKENS 128
+#define MAX_PIPE_CMDS 16
+
+static bool is_op_char(char c) {
+    return c == '|' || c == '&' || c == ';' || c == '<' || c == '>';
+}
+
+static void print_syntax_error(const char *msg) {
+    set_color(g_color_error);
+    printf("bsh: syntax error: %s\n", msg);
+    reset_color();
+}
+
+static void alias_snapshot_save(alias_t out_aliases[], int *out_count) {
+    if (!out_aliases || !out_count) return;
+    *out_count = g_alias_count;
+    for (int i = 0; i < g_alias_count && i < MAX_ALIASES; i++) {
+        out_aliases[i] = g_aliases[i];
+    }
+}
+
+static void alias_snapshot_restore(const alias_t saved_aliases[], int saved_count) {
+    g_alias_count = 0;
+    if (!saved_aliases || saved_count <= 0) return;
+    int copy_count = saved_count < MAX_ALIASES ? saved_count : MAX_ALIASES;
+    for (int i = 0; i < copy_count; i++) {
+        g_aliases[i] = saved_aliases[i];
+    }
+    g_alias_count = copy_count;
+}
+
+static int tokenize_line(const char *line, bsh_token_t toks[], int max_toks) {
+    if (!line || !toks || max_toks < 2) return -1;
+    int tcount = 0;
+    int i = 0;
+
+    while (line[i]) {
+        while (line[i] == ' ' || line[i] == '\t') i++;
+        if (!line[i]) break;
+        if (tcount >= max_toks - 1) {
+            print_syntax_error("too many tokens");
+            return -1;
+        }
+
+        if (line[i] == '&' && line[i + 1] == '&') {
+            toks[tcount].type = TOK_ANDAND;
+            toks[tcount].text[0] = 0;
+            tcount++;
+            i += 2;
+            continue;
+        }
+        if (line[i] == '|' && line[i + 1] == '|') {
+            toks[tcount].type = TOK_OROR;
+            toks[tcount].text[0] = 0;
+            tcount++;
+            i += 2;
+            continue;
+        }
+        if (line[i] == '>' && line[i + 1] == '>') {
+            toks[tcount].type = TOK_GTGT;
+            toks[tcount].text[0] = 0;
+            tcount++;
+            i += 2;
+            continue;
+        }
+
+        if (line[i] == '|') {
+            toks[tcount].type = TOK_PIPE;
+            toks[tcount].text[0] = 0;
+            tcount++;
+            i++;
+            continue;
+        }
+        if (line[i] == '&') {
+            toks[tcount].type = TOK_AMP;
+            toks[tcount].text[0] = 0;
+            tcount++;
+            i++;
+            continue;
+        }
+        if (line[i] == ';') {
+            toks[tcount].type = TOK_SEMI;
+            toks[tcount].text[0] = 0;
+            tcount++;
+            i++;
+            continue;
+        }
+        if (line[i] == '<') {
+            toks[tcount].type = TOK_LT;
+            toks[tcount].text[0] = 0;
+            tcount++;
+            i++;
+            continue;
+        }
+        if (line[i] == '>') {
+            toks[tcount].type = TOK_GT;
+            toks[tcount].text[0] = 0;
+            tcount++;
+            i++;
+            continue;
+        }
+
+        toks[tcount].type = TOK_WORD;
+        int out = 0;
+        while (line[i] && line[i] != ' ' && line[i] != '\t' && !is_op_char(line[i])) {
+            if (line[i] == '"' || line[i] == '\'') {
+                char quote = line[i++];
+                while (line[i] && line[i] != quote) {
+                    if (out < MAX_MATCH_LEN - 1) toks[tcount].text[out++] = line[i];
+                    i++;
+                }
+                if (line[i] == quote) i++;
+                continue;
+            }
+            if (out < MAX_MATCH_LEN - 1) toks[tcount].text[out++] = line[i];
+            i++;
+        }
+        toks[tcount].text[out] = 0;
+        if (out == 0) {
+            print_syntax_error("unexpected token");
+            return -1;
+        }
+        tcount++;
+    }
+
+    toks[tcount].type = TOK_END;
+    toks[tcount].text[0] = 0;
+    return tcount;
+}
+
+static bool parse_simple_command(bsh_token_t toks[], int *idx, bsh_simple_cmd_t *cmd) {
+    if (!toks || !idx || !cmd) return false;
+    cmd->argc = 0;
+    cmd->redir_in = NULL;
+    cmd->redir_out = NULL;
+    cmd->redir_append = false;
+
+    while (1) {
+        bsh_tok_type_t t = toks[*idx].type;
+        if (t == TOK_WORD) {
+            if (cmd->argc >= MAX_ARGS - 1) {
+                print_syntax_error("too many arguments");
+                return false;
+            }
+            cmd->argv[cmd->argc++] = toks[*idx].text;
+            (*idx)++;
+            continue;
+        }
+        if (t == TOK_LT || t == TOK_GT || t == TOK_GTGT) {
+            bsh_tok_type_t redir = t;
+            (*idx)++;
+            if (toks[*idx].type != TOK_WORD) {
+                print_syntax_error("missing filename after redirection");
+                return false;
+            }
+            if (redir == TOK_LT) {
+                cmd->redir_in = toks[*idx].text;
+            } else {
+                cmd->redir_out = toks[*idx].text;
+                cmd->redir_append = (redir == TOK_GTGT);
+            }
+            (*idx)++;
+            continue;
+        }
+        break;
+    }
+
+    cmd->argv[cmd->argc] = NULL;
+    if (cmd->argc <= 0) {
+        print_syntax_error("expected command");
+        return false;
+    }
+    return true;
+}
+
+static int execute_argv_inner(int argc, char *argv[], int depth, bool isolated, bool background, bool *want_exit, int *out_pid) {
     if (argc <= 0) return 0;
+    if (depth > 8) return 1;
+    if (out_pid) *out_pid = -1;
 
     if (!str_eq(argv[0], "alias") && !str_eq(argv[0], "unalias")) {
         const char *alias_val = alias_get(argv[0]);
@@ -1547,13 +1795,37 @@ static int execute_line_inner(const char *line, int depth) {
                 str_append(expanded, " ", sizeof(expanded));
                 str_append(expanded, tail, sizeof(expanded));
             }
-            return execute_line_inner(expanded, depth + 1);
+
+            char split_buf[MAX_LINE];
+            str_copy(split_buf, expanded, sizeof(split_buf));
+            char *expanded_argv[MAX_ARGS];
+            int expanded_argc = split_args(split_buf, expanded_argv, MAX_ARGS);
+            if (expanded_argc <= 0) return 0;
+            return execute_argv_inner(expanded_argc, expanded_argv, depth + 1, isolated, background, want_exit, out_pid);
         }
     }
 
-    int bi = execute_builtin(argc, argv);
-    if (bi == 2) return 2;
-    if (bi >= 0) return 0;
+    int bi = -1;
+    if (isolated) {
+        alias_t saved_aliases[MAX_ALIASES];
+        int saved_alias_count = 0;
+        char saved_cwd[256];
+        bool had_cwd = getcwd(saved_cwd, sizeof(saved_cwd)) != NULL;
+
+        alias_snapshot_save(saved_aliases, &saved_alias_count);
+        bi = execute_builtin(argc, argv);
+
+        alias_snapshot_restore(saved_aliases, saved_alias_count);
+        if (had_cwd) chdir(saved_cwd);
+    } else {
+        bi = execute_builtin(argc, argv);
+    }
+
+    if (bi == 2) {
+        if (!isolated && want_exit) *want_exit = true;
+        return 0;
+    }
+    if (bi >= 0) return bi == 0 ? 0 : 1;
 
     char full_path[256];
     int cmd_res = resolve_command(argv[0], full_path, sizeof(full_path));
@@ -1565,9 +1837,13 @@ static int execute_line_inner(const char *line, int depth) {
     char args_buf[256];
     build_args_string(argc, argv, 1, args_buf, sizeof(args_buf));
 
+    uint64_t spawn_flags = background
+        ? (SPAWN_FLAG_INHERIT_TTY | SPAWN_FLAG_BACKGROUND)
+        : (SPAWN_FLAG_TERMINAL | SPAWN_FLAG_INHERIT_TTY);
+
     int pid = -1;
     for (int attempt = 0; attempt < 5; attempt++) {
-        pid = sys_spawn(full_path, args_buf[0] ? args_buf : NULL, SPAWN_FLAG_TERMINAL | SPAWN_FLAG_INHERIT_TTY, 0);
+        pid = sys_spawn(full_path, args_buf[0] ? args_buf : NULL, spawn_flags, 0);
         if (pid >= 0) break;
         sleep(10);
     }
@@ -1578,14 +1854,278 @@ static int execute_line_inner(const char *line, int depth) {
         return 1;
     }
 
+    if (out_pid) *out_pid = pid;
+    if (background) return 0;
+
     if (g_tty_id >= 0) sys_tty_set_fg(g_tty_id, pid);
-    wait_for_pid(pid);
+    int status = wait_for_pid(pid);
     if (g_tty_id >= 0) sys_tty_set_fg(g_tty_id, 0);
-    return 0;
+    return status;
+}
+
+static int run_simple_command_with_fds(
+    bsh_simple_cmd_t *cmd,
+    int in_fd,
+    int out_fd,
+    bool isolate,
+    bool background,
+    bool *want_exit,
+    int *out_pid
+) {
+    if (out_pid) *out_pid = -1;
+    if (!cmd || cmd->argc <= 0) return 0;
+
+    int saved_in = sys_dup(0);
+    int saved_out = sys_dup(1);
+
+    if (saved_in < 0 || saved_out < 0) {
+        if (saved_in >= 0) sys_close(saved_in);
+        if (saved_out >= 0) sys_close(saved_out);
+        set_color(g_color_error);
+        printf("bsh: redirection/pipeline is unavailable in this session\n");
+        reset_color();
+        return 1;
+    }
+
+    int redir_in_fd = -1;
+    int redir_out_fd = -1;
+    bool in_is_kernel = false;
+    bool out_is_kernel = false;
+    int rc = 0;
+
+    // 1. Handle Pipe Input
+    if (in_fd >= 0 && sys_dup2(in_fd, 0) < 0) {
+        set_color(g_color_error);
+        printf("bsh: failed to set pipeline input\n");
+        reset_color();
+        rc = 1;
+        goto done;
+    }
+
+    // 2. Handle File Redirection Input (overrides pipe)
+    if (cmd->redir_in) {
+        redir_in_fd = bsh_open_file(cmd->redir_in, "r", &in_is_kernel);
+        if (redir_in_fd < 0 || sys_dup2(redir_in_fd, 0) < 0) {
+            set_color(g_color_error);
+            printf("bsh: cannot read from %s\n", cmd->redir_in);
+            reset_color();
+            rc = 1;
+            goto done;
+        }
+    }
+
+    // 3. Handle Pipe Output
+    if (out_fd >= 0 && sys_dup2(out_fd, 1) < 0) {
+        set_color(g_color_error);
+        printf("bsh: failed to set pipeline output\n");
+        reset_color();
+        rc = 1;
+        goto done;
+    }
+
+    // 4. Handle File Redirection Output (overrides pipe)
+    if (cmd->redir_out) {
+        const char *mode = cmd->redir_append ? "a" : "w";
+        redir_out_fd = bsh_open_file(cmd->redir_out, mode, &out_is_kernel);
+        if (redir_out_fd < 0 || sys_dup2(redir_out_fd, 1) < 0) {
+            set_color(g_color_error);
+            printf("bsh: cannot write to %s\n", cmd->redir_out);
+            reset_color();
+            rc = 1;
+            goto done;
+        }
+    }
+
+    rc = execute_argv_inner(cmd->argc, cmd->argv, 0, isolate, background, want_exit, out_pid);
+
+done:
+    if (redir_in_fd >= 0) sys_close(redir_in_fd);
+    if (redir_out_fd >= 0) sys_close(redir_out_fd);
+
+    sys_dup2(saved_in, 0);
+    sys_dup2(saved_out, 1);
+    sys_close(saved_in);
+    sys_close(saved_out);
+    return rc;
+}
+
+static bool parse_pipeline(
+    bsh_token_t toks[],
+    int *idx,
+    bsh_simple_cmd_t cmds[],
+    int *cmd_count
+) {
+    if (!toks || !idx || !cmds || !cmd_count) return false;
+    *cmd_count = 0;
+
+    if (!parse_simple_command(toks, idx, &cmds[*cmd_count])) return false;
+    (*cmd_count)++;
+
+    while (toks[*idx].type == TOK_PIPE) {
+        (*idx)++;
+        if (*cmd_count >= MAX_PIPE_CMDS) {
+            print_syntax_error("pipeline too long");
+            return false;
+        }
+        if (!parse_simple_command(toks, idx, &cmds[*cmd_count])) return false;
+        (*cmd_count)++;
+    }
+    return true;
+}
+
+static int execute_pipeline_cmds(
+    bsh_simple_cmd_t cmds[],
+    int cmd_count,
+    bool background,
+    bool *want_exit
+) {
+    if (!cmds || cmd_count <= 0) return 0;
+
+    if (cmd_count == 1) {
+        int pid = -1;
+        int res = run_simple_command_with_fds(&cmds[0], -1, -1, background, background, want_exit, &pid);
+        return background ? 0 : res;
+    }
+
+    int pipes[MAX_PIPE_CMDS - 1][2];
+    int pids[MAX_PIPE_CMDS];
+    for (int i = 0; i < cmd_count; i++) pids[i] = -1;
+
+    for (int i = 0; i < cmd_count - 1; i++) {
+        if (pipe(pipes[i]) < 0) {
+            set_color(g_color_error);
+            printf("bsh: failed to create pipe\n");
+            reset_color();
+            for (int j = 0; j < i; j++) {
+                close(pipes[j][0]);
+                close(pipes[j][1]);
+            }
+            return 1;
+        }
+    }
+
+    for (int i = 0; i < cmd_count; i++) {
+        int in_fd = (i == 0) ? -1 : pipes[i - 1][0];
+        int out_fd = (i == cmd_count - 1) ? -1 : pipes[i][1];
+
+        run_simple_command_with_fds(&cmds[i], in_fd, out_fd, true, true, want_exit, &pids[i]);
+
+        if (in_fd >= 0) close(in_fd);
+        if (out_fd >= 0) close(out_fd);
+    }
+
+    if (background) return 0;
+
+    int last_status = 0;
+    for (int i = 0; i < cmd_count; i++) {
+        if (pids[i] > 0) {
+            int s = wait_for_pid(pids[i]);
+            if (i == cmd_count - 1) last_status = s;
+        }
+    }
+
+    return last_status;
+}
+
+static bool parse_conditional_end_index(bsh_token_t toks[], int start_idx, int *out_end_idx) {
+    int idx = start_idx;
+    bsh_simple_cmd_t cmds[MAX_PIPE_CMDS];
+    int cmd_count = 0;
+
+    if (!parse_pipeline(toks, &idx, cmds, &cmd_count)) return false;
+
+    while (toks[idx].type == TOK_ANDAND || toks[idx].type == TOK_OROR) {
+        idx++;
+        if (!parse_pipeline(toks, &idx, cmds, &cmd_count)) return false;
+    }
+
+    *out_end_idx = idx;
+    return true;
+}
+
+static int execute_conditional_range(
+    bsh_token_t toks[],
+    int start_idx,
+    int end_idx,
+    bool background,
+    bool *want_exit
+) {
+    int idx = start_idx;
+    int status = 0;
+    bool execute_next = true;
+
+    while (idx < end_idx) {
+        bsh_simple_cmd_t cmds[MAX_PIPE_CMDS];
+        int cmd_count = 0;
+        if (!parse_pipeline(toks, &idx, cmds, &cmd_count)) return 1;
+
+        if (execute_next) {
+            status = execute_pipeline_cmds(cmds, cmd_count, background, want_exit);
+            if (*want_exit) return 2;
+        }
+
+        if (idx >= end_idx) break;
+
+        bsh_tok_type_t op = toks[idx].type;
+        idx++;
+        if (op == TOK_ANDAND) {
+            execute_next = (status == 0);
+        } else if (op == TOK_OROR) {
+            execute_next = (status != 0);
+        } else {
+            print_syntax_error("unexpected conditional operator");
+            return 1;
+        }
+    }
+
+    return status;
 }
 
 static int execute_line(const char *line) {
-    return execute_line_inner(line, 0);
+    if (!line || !line[0]) return 0;
+
+    char line_copy[MAX_LINE];
+    str_copy(line_copy, line, sizeof(line_copy));
+    trim(line_copy);
+    if (!line_copy[0]) return 0;
+    if (line_copy[0] == '#') return 0;
+
+    bsh_token_t toks[MAX_TOKENS];
+    int tcount = tokenize_line(line_copy, toks, MAX_TOKENS);
+    if (tcount < 0) return 1;
+    if (tcount == 0 || toks[0].type == TOK_END) return 0;
+
+    int idx = 0;
+    int status = 0;
+    bool want_exit = false;
+
+    while (toks[idx].type != TOK_END) {
+        if (toks[idx].type == TOK_SEMI || toks[idx].type == TOK_AMP) {
+            print_syntax_error("unexpected separator");
+            return 1;
+        }
+
+        int end_idx = idx;
+        if (!parse_conditional_end_index(toks, idx, &end_idx)) return 1;
+
+        bool background = false;
+        if (toks[end_idx].type == TOK_AMP) background = true;
+
+        status = execute_conditional_range(toks, idx, end_idx, background, &want_exit);
+        if (want_exit) return 2;
+
+        idx = end_idx;
+        if (toks[idx].type == TOK_SEMI || toks[idx].type == TOK_AMP) {
+            idx++;
+            continue;
+        }
+        if (toks[idx].type != TOK_END) {
+            print_syntax_error("unexpected token after command list");
+            return 1;
+        }
+    }
+
+    return status;
 }
 
 static bool run_script(const char *path) {

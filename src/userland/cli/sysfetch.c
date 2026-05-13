@@ -323,13 +323,22 @@ int main(int argc, char **argv) {
             int b = sys_read(fd_u, u_buf, 63);
             u_buf[b] = 0;
             sys_close(fd_u);
-            int sec = atoi(u_buf);
-            int mins = sec / 60;
+            int sec  = atoi(u_buf);
+            int days = sec / 86400;
+            int hrs  = (sec % 86400) / 3600;
+            int mins = (sec % 3600) / 60;
             strcpy(info_lines[info_line_count], config.uptime_label);
             strcat(info_lines[info_line_count], ": ");
-            itoa(mins, temp_buf);
-            strcat(info_lines[info_line_count], temp_buf);
-            strcat(info_lines[info_line_count++], " mins");
+            if (days > 0) {
+                itoa(days, temp_buf); strcat(info_lines[info_line_count], temp_buf);
+                strcat(info_lines[info_line_count], days == 1 ? " day, " : " days, ");
+            }
+            if (hrs > 0 || days > 0) {
+                itoa(hrs, temp_buf); strcat(info_lines[info_line_count], temp_buf);
+                strcat(info_lines[info_line_count], hrs == 1 ? " hour, " : " hours, ");
+            }
+            itoa(mins, temp_buf); strcat(info_lines[info_line_count], temp_buf);
+            strcat(info_lines[info_line_count++], mins == 1 ? " min" : " mins");
         }
     }
     if (config.cpu_label[0]) {

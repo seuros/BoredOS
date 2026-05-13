@@ -1235,9 +1235,21 @@ int main(void) {
         for (int i = 0; i < g_tab_count; i++) {
             TerminalSession *s = &g_tabs[i];
             int read = 0;
+            
+            // Read any remaining output from the TTY
             while ((read = sys_tty_read_out(s->tty_id, out_buf, sizeof(out_buf))) > 0) {
                 session_process_output(s, out_buf, read);
                 if (i == g_active_tab) dirty = true;
+            }
+
+            /* Check if the shell process has exited
+              if it has, close the tab.*/
+            int status = 0;
+            if (sys_waitpid(s->bsh_pid, &status, 1) > 0) {
+                close_tab(i);
+                i--;
+                dirty = true;
+                continue;
             }
         }
 

@@ -53,12 +53,17 @@ typedef struct {
     int refcount;
     int flags;
     int kernel_fd;
+    int owns_kernel_fd;
     pipe_state_t *pipe;
 } fd_handle_t;
 
 static fd_handle_t *g_fd_table[POSIX_MAX_FDS];
 static fd_handle_t g_stdio_handles[3];
 static int g_fd_initialized = 0;
+
+static int _b_is_stdio_handle(const fd_handle_t *h) {
+    return (h >= &g_stdio_handles[0] && h <= &g_stdio_handles[2]);
+}
 
 static void _b_fd_init(void) {
     int i;
@@ -73,6 +78,7 @@ static void _b_fd_init(void) {
         g_stdio_handles[i].refcount = 1;
         g_stdio_handles[i].flags = O_RDWR;
         g_stdio_handles[i].kernel_fd = i;
+        g_stdio_handles[i].owns_kernel_fd = 0;
         g_stdio_handles[i].pipe = NULL;
         g_fd_table[i] = &g_stdio_handles[i];
     }
@@ -274,6 +280,7 @@ __attribute__((weak)) int open(const char *pathname, int flags, ...) {
     h->refcount = 1;
     h->flags = flags;
     h->kernel_fd = kfd;
+    h->owns_kernel_fd = 1;
     h->pipe = NULL;
     g_fd_table[fd] = h;
 
@@ -300,7 +307,7 @@ __attribute__((weak)) int close(int fd) {
     }
 
     if (h->type == HANDLE_KERNEL_FD) {
-        if (h->kernel_fd >= 3) {
+        if (h->owns_kernel_fd) {
             sys_close(h->kernel_fd);
         }
     } else if (h->type == HANDLE_PIPE_READ || h->type == HANDLE_PIPE_WRITE) {
@@ -384,10 +391,13 @@ __attribute__((weak)) ssize_t write(int fd, const void *buf, size_t count) {
         return (ssize_t)n;
     }
 
-    if (h->kernel_fd <= 2) {
+    if (_b_is_stdio_handle(h)) {
         n = sys_write(h->kernel_fd, (const char *)buf, (int)count);
     } else {
         n = sys_write_fs(h->kernel_fd, buf, (uint32_t)count);
+        if (n < 0) {
+            n = sys_write(h->kernel_fd, (const char *)buf, (int)count);
+        }
     }
 
     if (n < 0) {
@@ -442,7 +452,7 @@ __attribute__((weak)) int isatty(int fd) {
         errno = EBADF;
         return 0;
     }
-    return (h->type == HANDLE_KERNEL_FD && h->kernel_fd <= 2) ? 1 : 0;
+    return (h->type == HANDLE_KERNEL_FD && _b_is_stdio_handle(h)) ? 1 : 0;
 }
 
 __attribute__((weak)) int fstat(int fd, struct stat *statbuf) {
@@ -471,31 +481,38 @@ __attribute__((weak)) int fstat(int fd, struct stat *statbuf) {
 
 __attribute__((weak)) int dup(int oldfd) {
     fd_handle_t *h;
+    fd_handle_t *src;
     int newfd;
     int newkfd;
     _b_fd_init();
 
-    h = _b_get_handle(oldfd);
-    if (!h) {
+    src = _b_get_handle(oldfd);
+    if (!src) {
         errno = EBADF;
         return -1;
     }
 
-    if (h->type != HANDLE_KERNEL_FD) {
+    if (src->type != HANDLE_KERNEL_FD) {
         errno = ENOTSUP;
         return -1;
     }
 
-    newkfd = sys_dup(h->kernel_fd);
+    newkfd = sys_dup(src->kernel_fd);
     if (newkfd < 0) {
-        errno = EBADF;
-        return -1;
+        if (_b_is_stdio_handle(src)) {
+            newkfd = src->kernel_fd;
+        } else {
+            errno = EBADF;
+            return -1;
+        }
     }
 
     newfd = _b_alloc_fd_from(0);
     if (newfd < 0) {
-        sys_close(newkfd);
-        errno = EBUSY;
+        if (newkfd >= 3) {
+            sys_close(newkfd);
+        }
+        errno = EBADF;
         return -1;
     }
 
@@ -510,19 +527,20 @@ __attribute__((weak)) int dup(int oldfd) {
     h->refcount = 1;
     h->flags = O_RDWR;
     h->kernel_fd = newkfd;
+    h->owns_kernel_fd = (newkfd != src->kernel_fd) ? 1 : 0;
     h->pipe = NULL;
     g_fd_table[newfd] = h;
     return newfd;
 }
 
 __attribute__((weak)) int dup2(int oldfd, int newfd) {
-    fd_handle_t *h;
+    fd_handle_t *src;
     fd_handle_t *nh;
-    int newkfd;
+    int kfd_res;
     _b_fd_init();
 
-    h = _b_get_handle(oldfd);
-    if (!h || newfd < 0 || newfd >= POSIX_MAX_FDS) {
+    src = _b_get_handle(oldfd);
+    if (!src || newfd < 0 || newfd >= POSIX_MAX_FDS) {
         errno = EBADF;
         return -1;
     }
@@ -531,36 +549,48 @@ __attribute__((weak)) int dup2(int oldfd, int newfd) {
         return newfd;
     }
 
-    if (h->type != HANDLE_KERNEL_FD) {
+    if (src->type != HANDLE_KERNEL_FD) {
         errno = ENOTSUP;
         return -1;
     }
 
-    if (g_fd_table[newfd]) {
-        if (close(newfd) != 0) {
-            return -1;
-        }
-    }
-
-    newkfd = sys_dup(h->kernel_fd);
-    if (newkfd < 0) {
+    // Force kernel to update its FD table for the new slot
+    kfd_res = sys_dup2(src->kernel_fd, newfd);
+    if (kfd_res < 0) {
         errno = EBADF;
         return -1;
     }
 
-    nh = (fd_handle_t *)malloc(sizeof(fd_handle_t));
-    if (!nh) {
-        errno = ENOMEM;
-        return -1;
+    // If newfd was already open in libc, we need to replace its handle
+    if (g_fd_table[newfd] && !_b_is_stdio_handle(g_fd_table[newfd])) {
+        close(newfd);
     }
 
-    nh->type = HANDLE_KERNEL_FD;
-    nh->refcount = 1;
-    nh->flags = h->flags;
-    nh->kernel_fd = newkfd;
-    nh->pipe = NULL;
+    // If it's a stdio handle, we update it in place
+    if (newfd >= 0 && newfd <= 2) {
+        nh = &g_stdio_handles[newfd];
+        nh->type = HANDLE_KERNEL_FD;
+        nh->kernel_fd = newfd;
+        nh->flags = src->flags;
+        nh->refcount = 1;
+        nh->owns_kernel_fd = 0;
+        nh->pipe = NULL;
+        g_fd_table[newfd] = nh;
+    } else {
+        nh = (fd_handle_t *)malloc(sizeof(fd_handle_t));
+        if (!nh) {
+            errno = ENOMEM;
+            return -1;
+        }
+        nh->type = HANDLE_KERNEL_FD;
+        nh->refcount = 1;
+        nh->flags = src->flags;
+        nh->kernel_fd = newfd;
+        nh->owns_kernel_fd = 1;
+        nh->pipe = NULL;
+        g_fd_table[newfd] = nh;
+    }
 
-    g_fd_table[newfd] = nh;
     return newfd;
 }
 

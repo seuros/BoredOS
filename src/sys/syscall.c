@@ -1102,6 +1102,12 @@ static uint64_t fs_cmd_read(const syscall_args_t *args) {
         return n;
     }
 
+    if (proc->fd_kind[fd] == PROC_FD_KIND_TTY) {
+        if (proc->tty_id < 0) return (uint64_t)-1;
+        extern int tty_read_input(int tty_id, char *buf, size_t len);
+        return (uint64_t)tty_read_input(proc->tty_id, (char *)buf, (size_t)len);
+    }
+
     return -1;
 }
 
@@ -1137,6 +1143,12 @@ static uint64_t fs_cmd_write(const syscall_args_t *args) {
             pipe->count++;
         }
         return n;
+    }
+
+    if (proc->fd_kind[fd] == PROC_FD_KIND_TTY) {
+        if (proc->tty_id < 0) return (uint64_t)-1;
+        extern int tty_write_output(int tty_id, const char *buf, size_t len);
+        return (uint64_t)tty_write_output(proc->tty_id, (const char *)buf, (size_t)len);
     }
 
     return -1;

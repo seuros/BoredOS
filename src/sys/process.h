@@ -17,6 +17,7 @@
 #define PROC_FD_KIND_FILE 1
 #define PROC_FD_KIND_PIPE_READ 2
 #define PROC_FD_KIND_PIPE_WRITE 3
+#define PROC_FD_KIND_TTY 4
 
 typedef struct {
     void *file;

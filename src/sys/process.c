@@ -302,6 +302,40 @@ process_t* process_create_elf(const char* filepath, const char* args_str, bool t
         new_proc->fd_kind[i] = 0;
         new_proc->fd_flags[i] = 0;
     }
+
+    process_t *parent = process_get_current();
+    if (parent) {
+        for (int i = 0; i < MAX_PROCESS_FDS; i++) {
+            if (parent->fds[i]) {
+                new_proc->fds[i] = parent->fds[i];
+                new_proc->fd_kind[i] = parent->fd_kind[i];
+                new_proc->fd_flags[i] = parent->fd_flags[i];
+                
+                if (new_proc->fd_kind[i] == PROC_FD_KIND_FILE) {
+                    process_fd_file_ref_t *ref = (process_fd_file_ref_t *)new_proc->fds[i];
+                    if (ref) ref->refs++;
+                } else if (new_proc->fd_kind[i] == PROC_FD_KIND_PIPE_READ) {
+                    process_fd_pipe_t *pipe = (process_fd_pipe_t *)new_proc->fds[i];
+                    if (pipe) pipe->readers++;
+                } else if (new_proc->fd_kind[i] == PROC_FD_KIND_PIPE_WRITE) {
+                    process_fd_pipe_t *pipe = (process_fd_pipe_t *)new_proc->fds[i];
+                    if (pipe) pipe->writers++;
+                }
+            }
+        }
+    }
+
+    // Always set up TTY FDs if a TTY is provided and they aren't already set
+    if (tty_id >= 0) {
+        for (int i = 0; i < 3; i++) {
+            if (!new_proc->fds[i]) {
+                new_proc->fds[i] = (void*)(uint64_t)1;
+                new_proc->fd_kind[i] = PROC_FD_KIND_TTY;
+                new_proc->fd_flags[i] = (i == 0) ? 0 : 1;
+            }
+        }
+    }
+
     new_proc->gui_event_head = 0;
     new_proc->gui_event_tail = 0;
     new_proc->ui_window = NULL;
@@ -314,7 +348,6 @@ process_t* process_create_elf(const char* filepath, const char* args_str, bool t
     new_proc->exit_status = 0;
     process_init_signal_state(new_proc);
 
-    process_t *parent = process_get_current();
     if (parent) {
         extern void mem_memcpy(void *dest, const void *src, size_t len);
         mem_memcpy(new_proc->cwd, parent->cwd, 1024);
