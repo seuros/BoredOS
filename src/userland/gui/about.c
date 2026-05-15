@@ -1,4 +1,4 @@
-// Copyright (c) 2023-2026 Chris (boreddevnl)
+// Copyright (c) 2023-2026 Christiaan (chris@boreddev.nl)
 // This software is released under the GNU General Public License v3.0. See LICENSE file for details.
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 // BOREDOS_APP_DESC: Shows BoredOS information.
@@ -134,7 +134,7 @@ static void about_paint(ui_window_t win) {
     ui_draw_string(win, offset_x, text_y + fh*3, build_date_str, 0xFFFFFFFF);
     
     // Copyright
-    ui_draw_string(win, offset_x, text_y + fh*4, "(C) 2026 boreddevnl.", 0xFFFFFFFF);
+    ui_draw_string(win, offset_x, text_y + fh*4, "(C) 2026 Christiaan (chris@boreddev.nl).", 0xFFFFFFFF);
     ui_draw_string(win, offset_x, text_y + fh*5, "All rights reserved.", 0xFFFFFFFF);
     
     ui_mark_dirty(win, 0, 0, w, h);

@@ -91,7 +91,7 @@ BoredOS is a complete architectural reboot, applying years of lessons learned to
 
 ## License
 
-**Copyright (C) 2023–2026 boreddevnl**
+**Copyright (C) 2023–2026 Christiaan (chris@boreddev.nl)**
 
 Distributed under the **GNU General Public License v3**. See [`LICENSE`](LICENSE) for details.
 
