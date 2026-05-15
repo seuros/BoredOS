@@ -64,6 +64,7 @@ static uint32_t g_color_default = 0;
 
 static bool str_eq(const char *a, const char *b);
 static void get_time_string(char *out, int max_len);
+static int delete_recursive(const char *path);
 
 static int hex_digit(char c) {
     if (c >= '0' && c <= '9') return c - '0';
@@ -1279,7 +1280,7 @@ static int builtin_rm(int argc, char *argv[]) {
         reset_color();
         return 1;
     }
-    if (sys_delete(argv[1]) == 0) return 0;
+    if (delete_recursive(argv[1]) == 0) return 0;
     set_color(g_color_error);
     printf("rm: cannot delete %s\n", argv[1]);
     reset_color();
@@ -1364,22 +1365,43 @@ static void copy_recursive(const char *src, const char *dst) {
     }
 }
 
-static void delete_recursive(const char *path) {
+static int delete_recursive(const char *path) {
     FAT32_FileInfo info;
-    if (sys_get_file_info(path, &info) < 0) return;
+    if (sys_get_file_info(path, &info) < 0) return -1;
 
     if (info.is_directory) {
-        FAT32_FileInfo entries[64];
-        int count = sys_list(path, entries, 64);
-        for (int i = 0; i < count; i++) {
-            if (str_eq(entries[i].name, ".") || str_eq(entries[i].name, "..")) continue;
-            char sub_path[512];
-            combine_path(sub_path, path, entries[i].name);
-            delete_recursive(sub_path);
+        while (1) {
+            FAT32_FileInfo *entries = (FAT32_FileInfo*)malloc(sizeof(FAT32_FileInfo) * 256);
+            if (!entries) return -1;
+
+            int count = sys_list(path, entries, 256);
+            if (count < 0) {
+                free(entries);
+                return -1;
+            }
+            if (count == 0) {
+                free(entries);
+                break;
+            }
+
+            int deleted_any = 0;
+            for (int i = 0; i < count; i++) {
+                if (str_eq(entries[i].name, ".") || str_eq(entries[i].name, "..")) continue;
+                char sub_path[512];
+                combine_path(sub_path, path, entries[i].name);
+                if (delete_recursive(sub_path) != 0) {
+                    free(entries);
+                    return -1;
+                }
+                deleted_any = 1;
+            }
+
+            free(entries);
+            if (!deleted_any) break;
         }
-        sys_delete(path);
+        return sys_delete(path);
     } else {
-        sys_delete(path);
+        return sys_delete(path);
     }
 }
 

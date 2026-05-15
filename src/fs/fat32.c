@@ -272,8 +272,21 @@ static FileEntry* ramfs_alloc_entry(void) {
     return e;
 }
 
+static void ramfs_free_cluster_chain(uint32_t start_cluster) {
+    uint32_t cluster = start_cluster;
+    uint32_t guard = 0;
+
+    while (cluster >= 3 && cluster < MAX_CLUSTERS && fat_table[cluster] != 0 && guard++ < MAX_CLUSTERS) {
+        uint32_t next = fat_table[cluster];
+        fat_table[cluster] = 0;
+        if (next >= 0xFFFFFFF8 || next == cluster) break;
+        cluster = next;
+    }
+}
+
 static void ramfs_free_entry(FileEntry *entry) {
     if (!entry) return;
+    ramfs_free_cluster_chain(entry->start_cluster);
     if (file_list_head == entry) {
         file_list_head = entry->next;
     } else {
@@ -295,10 +308,24 @@ static FAT32_FileHandle* ramfs_find_free_handle(void) {
 }
 
 static uint32_t ramfs_allocate_cluster(void) {
-    if (next_cluster >= MAX_CLUSTERS) return 0;
-    uint32_t cluster = next_cluster++;
-    fat_table[cluster] = 0xFFFFFFFF;
-    return cluster;
+    for (uint32_t pass = 0; pass < 2; pass++) {
+        uint32_t start = pass == 0 ? next_cluster : 3;
+        uint32_t end = pass == 0 ? MAX_CLUSTERS : next_cluster;
+
+        for (uint32_t cluster = start; cluster < end; cluster++) {
+            if (fat_table[cluster] == 0) {
+                fat_table[cluster] = 0xFFFFFFFF;
+                next_cluster = cluster + 1;
+                if (next_cluster >= MAX_CLUSTERS) next_cluster = 3;
+                for (int i = 0; i < FAT32_CLUSTER_SIZE; i++) {
+                    cluster_data[cluster][i] = 0;
+                }
+                return cluster;
+            }
+        }
+    }
+
+    return 0;
 }
 
 static int ramfs_count_files_in_dir(const char *normalized_path) {
@@ -350,7 +377,12 @@ static FAT32_FileHandle* ramfs_open(const char *normalized_path, const char *mod
             entry->size = 0;
             entry->attributes = 0;
         }
-        if (mode[0] == 'w') entry->size = 0;
+        if (mode[0] == 'w') {
+            ramfs_free_cluster_chain(entry->start_cluster);
+            entry->start_cluster = ramfs_allocate_cluster();
+            if (!entry->start_cluster) return NULL;
+            entry->size = 0;
+        }
     }
     
     FAT32_FileHandle *handle = ramfs_find_free_handle();
@@ -1809,14 +1841,49 @@ static bool vfs_realfs_mkdir(void *fs_private, const char *rel_path) {
 }
 
 static bool vfs_realfs_rmdir(void *fs_private, const char *rel_path) {
-    (void)fs_private; (void)rel_path;
-    return false; // Requires full tree deletion support
+    FAT32_Volume *vol = (FAT32_Volume*)fs_private;
+    FAT32_FileInfo child;
+    bool ret = false;
+
+    if (!vol || !rel_path || rel_path[0] == '\0' || fs_strcmp(rel_path, "/") == 0) {
+        return false;
+    }
+
+    uint64_t rflags = spinlock_acquire_irqsave(&vol->lock);
+    FAT32_FileHandle *fh = realfs_open_from_vol(vol, rel_path, "r");
+    if (!fh) {
+        spinlock_release_irqrestore(&vol->lock, rflags);
+        return false;
+    }
+
+    bool is_dir = fh->is_directory;
+    extern void fat32_close_nolock(FAT32_FileHandle *handle);
+    fat32_close_nolock(fh);
+
+    if (is_dir && realfs_list_directory_vol(vol, rel_path, &child, 1) == 0) {
+        ret = realfs_delete_from_vol(vol, rel_path);
+    }
+    spinlock_release_irqrestore(&vol->lock, rflags);
+
+    if (ret) fat32_sync_if_root(vol);
+    return ret;
 }
 
 static bool vfs_realfs_unlink(void *fs_private, const char *rel_path) {
     FAT32_Volume *vol = (FAT32_Volume*)fs_private;
     uint64_t rflags = spinlock_acquire_irqsave(&vol->lock);
-    bool ret = realfs_delete_from_vol((FAT32_Volume*)fs_private, rel_path);
+
+    FAT32_FileHandle *fh = realfs_open_from_vol(vol, rel_path, "r");
+    if (!fh) {
+        spinlock_release_irqrestore(&vol->lock, rflags);
+        return false;
+    }
+
+    bool is_dir = fh->is_directory;
+    extern void fat32_close_nolock(FAT32_FileHandle *handle);
+    fat32_close_nolock(fh);
+
+    bool ret = is_dir ? false : realfs_delete_from_vol(vol, rel_path);
     spinlock_release_irqrestore(&vol->lock, rflags);
     if (ret) fat32_sync_if_root(vol);
     return ret;
@@ -2327,6 +2394,14 @@ bool fat32_rmdir(const char *path) {
         kfree(normalized);
         spinlock_release_irqrestore(&ramfs_lock, rflags);
         return false;
+    }
+
+    for (FileEntry *n = file_list_head; n; n = n->next) {
+        if (n != entry && fs_strcmp(n->parent_path, normalized) == 0) {
+            kfree(normalized);
+            spinlock_release_irqrestore(&ramfs_lock, rflags);
+            return false;
+        }
     }
     
     ramfs_free_entry(entry);

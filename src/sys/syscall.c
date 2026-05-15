@@ -1368,6 +1368,9 @@ static uint64_t fs_cmd_delete(const syscall_args_t *args) {
     if (!path) return -1;
     char normalized[VFS_MAX_PATH];
     vfs_normalize_path(proc->cwd, path, normalized);
+    if (vfs_is_directory(normalized)) {
+        return vfs_rmdir(normalized) ? 0 : -1;
+    }
     return vfs_delete(normalized) ? 0 : -1;
 }
 
