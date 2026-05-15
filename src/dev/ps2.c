@@ -27,12 +27,6 @@ uint64_t timer_handler(registers_t *regs) {
 
         extern void k_beep_process(void);
         k_beep_process();
-
-        if (kernel_ticks % 100 == 0) {
-            serial_write("[TIMER] Heartbeat: ");
-            serial_write_num((uint32_t)kernel_ticks);
-            serial_write(" ticks\n");
-        }
     }
 
     outb(0x20, 0x20);
