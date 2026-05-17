@@ -12,7 +12,7 @@ Use libc wrappers when possible instead of calling raw syscall numbers directly.
 |---|---|---|
 | 0 | `SYS_EXIT` (userland header) | Terminate current process |
 | 1 | `SYS_WRITE` | Write to stdout/tty path |
-| 3 | `SYS_GUI` | Window manager and drawing commands |
+| 3 | `SYS_GUI` | Defunct (previously Window Manager) |
 | 4 | `SYS_FS` | Filesystem and fd commands |
 | 5 | `SYS_SYSTEM` | System-wide command multiplexer |
 | 8 | `SYS_DEBUG_SERIAL` | Debug serial output (kernel only) |
@@ -22,7 +22,7 @@ Use libc wrappers when possible instead of calling raw syscall numbers directly.
 
 Notes:
 - Some numbers differ between kernel and userland headers for historical reasons. For app code, rely on wrapper functions in `src/userland/libc/syscall.c`.
-- `SYS_GUI`, `SYS_FS`, and `SYS_SYSTEM` are command multiplexers.
+- `SYS_FS` and `SYS_SYSTEM` are command multiplexers.
 
 ## FS Command IDs (`SYS_FS`)
 
@@ -54,29 +54,8 @@ Notes:
 
 ## GUI Command IDs (`SYS_GUI`)
 
-| ID | Macro | Meaning |
-|---|---|---|
-| 1 | `GUI_CMD_WINDOW_CREATE` | Create a new window |
-| 2 | `GUI_CMD_DRAW_RECT` | Draw a rectangle |
-| 3 | `GUI_CMD_DRAW_STRING` | Draw a string (TTF) |
-| 4 | `GUI_CMD_MARK_DIRTY` | Mark region dirty / dual-buffer commit |
-| 5 | `GUI_CMD_GET_EVENT` | Retrieve next GUI event |
-| 6 | `GUI_CMD_DRAW_ROUNDED_RECT_FILLED` | Draw filled rounded rectangle |
-| 7 | `GUI_CMD_DRAW_IMAGE` | Draw raw image data |
-| 8 | `GUI_CMD_GET_STRING_WIDTH` | Get TTF string width |
-| 9 | `GUI_CMD_GET_FONT_HEIGHT` | Get TTF font height |
-| 10 | `GUI_CMD_DRAW_STRING_BITMAP` | Draw legacy bitmap string |
-| 11 | `GUI_CMD_DRAW_STRING_SCALED` | Draw scaled TTF string |
-| 12 | `GUI_CMD_GET_STRING_WIDTH_SCALED` | Get scaled TTF string width |
-| 13 | `GUI_CMD_GET_FONT_HEIGHT_SCALED` | Get scaled TTF font height |
-| 14 | `GUI_CMD_WINDOW_SET_RESIZABLE` | Toggle window resizability |
-| 15 | `GUI_CMD_WINDOW_SET_TITLE` | Update window title |
-| 16 | `GUI_CMD_SET_FONT` | Load/set window-specific font |
-| 18 | `GUI_CMD_DRAW_STRING_SCALED_SLOPED` | Draw sloped/scaled TTF string |
-| 50 | `GUI_CMD_GET_SCREEN_SIZE` | Get display resolution |
-| 51 | `GUI_CMD_GET_SCREENBUFFER` | Copy screen contents to buffer |
-| 52 | `GUI_CMD_SHOW_NOTIFICATION` | Show desktop notification |
-| 53 | `GUI_CMD_GET_DATETIME` | Get RTC datetime |
+> [!NOTE]
+> The `SYS_GUI` syscall multiplexer is defunct in this branch as the legacy Window Manager has been removed in favor of modular TTY consoles and direct framebuffer (`/dev/fb0`) access.
 
 ## SYSTEM Command IDs (`SYS_SYSTEM`)
 

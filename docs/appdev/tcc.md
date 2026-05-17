@@ -26,31 +26,58 @@ tcc hello.c -o hello.elf
 ./hello.elf
 ```
 
-## Developing GUI Applications
+## Developing Direct Framebuffer (Graphics) Applications
 
-To develop applications that use the BoredOS Window Manager and UI library, you need to link against `libboredos`.
+Since the legacy window manager has been removed, graphical applications can write directly to the screen via the `/dev/fb0` framebuffer device. To ensure the text console doesn't overwrite your drawings, configure the console TTY to graphics mode (`KD_GRAPHICS`).
 
-### Example GUI App (`hello_gui.c`)
+### Example Framebuffer App (`hello_fb.c`)
 
 ```c
-#include <libc/libui.h>
-#include <libc/syscall.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/ioctl.h>
+#include <sys/kd.h>
+#include <stdint.h>
 
 int main() {
-    ui_window_t win = ui_window_create("Hello TCC", 100, 100, 300, 200);
-    if (!win) return 1;
+    int fd = open("/dev/fb0", O_RDWR);
+    if (fd < 0) {
+        printf("Error: cannot open /dev/fb0\n");
+        return 1;
+    }
 
-    gui_event_t ev;
-    while (1) {
-        if (ui_get_event(win, &ev)) {
-            if (ev.type == GUI_EVENT_PAINT) {
-                ui_draw_string(win, 20, 40, "Compiled natively!", 0xFFFFFFFF);
-                ui_mark_dirty(win, 0, 0, 300, 200);
-            } else if (ev.type == GUI_EVENT_CLOSE) {
-                break;
-            }
+    // Query screen info
+    struct fb_var_screeninfo vinfo;
+    struct fb_fix_screeninfo finfo;
+    ioctl(fd, FBIOGET_VSCREENINFO, &vinfo);
+    ioctl(fd, FBIOGET_FSCREENINFO, &finfo);
+
+    // Disable TTY text blitting to prevent the kernel from drawing console text on the screen
+    ioctl(0, KDSETMODE, (void*)KD_GRAPHICS);
+
+    // Fill screen with blue
+    uint32_t size = finfo.line_length * vinfo.yres;
+    uint8_t *fb = malloc(size);
+    for (uint32_t y = 0; y < vinfo.yres; y++) {
+        uint32_t *row = (uint32_t *)(fb + y * finfo.line_length);
+        for (uint32_t x = 0; x < vinfo.xres; x++) {
+            row[x] = 0xFF0000FF; // BGRA Blue
         }
     }
+
+    lseek(fd, 0, SEEK_SET);
+    write(fd, fb, size);
+    free(fb);
+
+    // Hold screen for 3 seconds
+    sleep(3000);
+
+    // Restore text console blitting
+    ioctl(0, KDSETMODE, (void*)KD_TEXT);
+
+    close(fd);
     return 0;
 }
 ```
@@ -58,11 +85,8 @@ int main() {
 ### Compilation Command
 
 ```bash
-tcc hello_gui.c -o hello_gui.elf -lboredos
+tcc hello_fb.c -o hello_fb.elf
 ```
-
-> [!NOTE]
-> The compiler automatically searches `/usr/include` for headers and `/usr/lib` for libraries. The BoredOS SDK headers and `libboredos.a` are pre-installed in these locations.
 
 ## Technical Details
 

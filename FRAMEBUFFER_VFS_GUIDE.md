@@ -237,11 +237,11 @@ See `src/userland/apps/fbtest.c` for implementation.
 1. **src/fs/vfs.h**
    - Added `DEVICE_TYPE_FRAMEBUFFER` constant
 
-2. **src/wm/graphics.h**
+2. **src/graphics/graphics.h**
    - Added `framebuffer_info_t` structure
    - Added framebuffer getter functions
 
-3. **src/wm/graphics.c**
+3. **src/graphics/graphics.c**
    - Implemented framebuffer query functions
 
 4. **src/fs/vfs.c**

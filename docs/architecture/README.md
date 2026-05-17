@@ -8,7 +8,7 @@ The documentation is split by area so you can go directly to the subsystem you w
 
 | Area | Document | Description |
 | --- | --- | --- |
-| Graphics | [`graphics/window_manager.md`](architecture/graphics/window_manager.md) | Window manager design and display composition. |
+| Graphics | [`graphics/framebuffer.md`](architecture/graphics/framebuffer.md) | Framebuffer device (/dev/fb0) architecture, ioctls, seeking, and direct screen memory. |
 | Hardware | [`hardware/input.md`](architecture/hardware/input.md) | Hardware-level input support and device wiring. |
 | Hardware | [`hardware/pci.md`](architecture/hardware/pci.md) | PCI bus management and device enumeration. |
 | Hardware | [`hardware/i2c.md`](architecture/hardware/i2c.md) | I2C bus management and controller drivers. |
@@ -21,6 +21,7 @@ The documentation is split by area so you can go directly to the subsystem you w
 | Storage | [`storage/filesystem.md`](architecture/storage/filesystem.md) | File system structure and storage access. |
 | Storage | [`storage/ahci_drivers.md`](architecture/storage/ahci_drivers.md) | AHCI driver implementation and disk controller support. |
 | System | [`system/core.md`](architecture/system/core.md) | Core kernel architecture and main subsystems. |
+| System | [`system/tty.md`](architecture/system/tty.md) | Virtual terminals, virtual framebuffers, active TTY blitting, and keyboard/mouse multiplexing. |
 | System | [`system/interrupts.md`](architecture/system/interrupts.md) | Interrupt handling and low-level event dispatch. |
 | System | [`system/processes.md`](architecture/system/processes.md) | Process management, scheduling, and execution model. |
 | General | [`versioning.md`](architecture/versioning.md) | Release versioning and project numbering conventions. |

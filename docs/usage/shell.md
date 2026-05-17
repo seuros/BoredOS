@@ -1,7 +1,3 @@
-# Terminal & Command Line
-
-The BoredOS Terminal provides a powerful command-line interface (CLI) for advanced users and developers. It supports standard Unix-like features and provides direct access to the kernel's system calls.
-
 ## The Shell
 
 The default shell in BoredOS is **BoredShell (Bsh)**, a userspace shell with a dedicated terminal app. It features:

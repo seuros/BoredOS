@@ -9,7 +9,7 @@ When you run `make` in the root directory, the following stages occur automatica
 1.  **Limine Setup (`limine-setup`)**:
     If the Limine bootloader binaries are missing, the Makefile automatically clones the appropriate Limine binary release from GitHub and compiles its host utility.
 2.  **Kernel Compilation**:
-    All `.c` files in `src/core`, `src/mem`, `src/dev`, `src/sys`, `src/fs`, `src/wm`, and `src/net` are compiled into object files (`.o`) inside the `build/` directory using `x86_64-elf-gcc`.
+    All `.c` files in `src/core`, `src/mem`, `src/dev`, `src/sys`, `src/fs`, `src/graphics`, and `src/net` are compiled into object files (`.o`) inside the `build/` directory using `x86_64-elf-gcc`.
 3.  **Kernel Assembly**:
     All `.asm` files in `src/arch/` are assembled into object files using `nasm`.
 4.  **Kernel Linking**:

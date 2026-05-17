@@ -17,6 +17,7 @@ Explains the logical layout of the kernel and internal components.
 #### System
 -   [`Core`](architecture/system/core.md): Kernel source layout and the boot process (Limine, Multiboot2).
 -   [`Processes & Scheduling`](architecture/system/processes.md): Multitasking, context switching, and ELF loading.
+-   [`TTY & Virtual Terminals`](architecture/system/tty.md): 10 virtual consoles, virtual framebuffers, active blitting, and keyboard/mouse multiplexing.
 -   [`Interrupts & Exceptions`](architecture/system/interrupts.md): IDT, GDT, and exception handling.
 
 #### Memory
@@ -32,8 +33,7 @@ Explains the logical layout of the kernel and internal components.
 -   [`Network Drivers`](architecture/network/network_drivers.md): Hardware interaction for network cards (e.g. e1000).
 
 #### Graphics
--   [`Window Manager`](architecture/graphics/window_manager.md): Compositor, events, and overlapping windows.
--   [`Rendering`](architecture/graphics/rendering.md): Framebuffer, font rendering, and image loading.
+-   [`Framebuffer Device`](architecture/graphics/framebuffer.md): Direct physical screen memory access, Linux-compatible `/dev/fb0` ioctls, seeking, and memory mapping (`mmap`).
 
 #### Hardware
 -   [`PCI`](architecture/hardware/pci.md): PCI bus enumeration and device binding.
@@ -52,20 +52,15 @@ The SDK and toolchain guides for creating your own `.elf` userland binaries.
 -   [`SDK Reference`](appdev/sdk_reference.md): Overview hub for SDK layout, includes, and links to detailed libc/syscall docs.
 -   [`Syscalls`](appdev/syscalls.md): Current syscall numbers, FS/SYSTEM command IDs, and wrapper guidance.
 -   [`libc Reference`](appdev/libc_reference.md): Current libc headers, implemented APIs, and behavior notes.
--   [`UI API`](appdev/ui_api.md): Drawing on the screen, creating windows, and polling the event loop using `libui.h`.
--   [`Widget API`](appdev/widget_api.md): High-level UI components like buttons, textboxes, and scrollbars using `libwidget.h`.
--   [`Custom Apps`](appdev/custom_apps.md): A step-by-step tutorial on writing a new graphical C application, editing the Makefile, and bundling it into the ISO.
--   [`ELF App Metadata`](appdev/elf_metadata.md): How to declare app icons and descriptions using source annotations, how the build system embeds them into `.note.boredos.app` ELF sections, and how the kernel reads them at runtime.
--   [`Example Apps`](appdev/examples/README.md): A collection of sample C applications ranging from basic terminal output to advanced TCP networking.
--   [`Grapher`](appdev/grapher.md): Full reference for the built-in mathematical graphing application — equation syntax, keyboard controls, architecture, and configuration.
+-   [`Raw Graphics Guide`](appdev/framebuffer_drawing.md): Developer guide to raw `/dev/fb0` drawing, screen layout queries, ioctls, memory mapping (`mmap`), and safe TTY mode restoration.
+-   [`Custom Apps`](appdev/custom_apps.md): A step-by-step tutorial on writing a new C application, editing the Makefile, and compiling/bundling it into the ISO.
+-   [`ELF App Metadata`](appdev/elf_metadata.md): How to declare app descriptions using source annotations, how the build system embeds them into `.note.boredos.app` ELF sections, and how the kernel reads them at runtime.
+-   [`Example Apps`](appdev/examples/README.md): A collection of sample C applications ranging from basic terminal output to advanced direct framebuffer access and TCP networking.
 -   [`Native TCC`](appdev/tcc.md): How to use the Tiny C Compiler (TCC) to build and run C applications directly on BoredOS.
 
 ### 4. [Usage](usage/)
 General guides on how to interact with the OS.
 -   [`Booting`](usage/booting.md): How to use the Limine bootloader and toggle kernel boot flags like `-v`.
--   [`Desktop`](usage/desktop.md): Window management, shortcuts, and desktop interaction.
--   [`Lumos`](usage/lumos.md): Using the system-wide search (`Shift + Ctrl + Space`).
 -   [`Terminal`](usage/terminal.md): Command line interface, redirection, and common commands.
--   [`Launching Apps`](usage/launching_apps.md): Ways to launch files and applications, plus a software overview.
 
 ---

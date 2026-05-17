@@ -10,20 +10,19 @@ This page is the high-level map; detailed API references now live in dedicated p
 
 ## SDK Structure
 
-Primary headers are in `src/userland/libc/` and UI helpers are in `src/wm/`.
+Primary headers are in `src/userland/libc/`.
 
 - `stdlib.h`, `string.h`, `stdio.h`, `unistd.h`: core libc surface
 - `syscall.h`: raw syscall wrappers and command constants
-- `libui.h`: window creation, drawing, and event polling
-- `libwidget.h`: higher-level reusable widgets
 - `math.h`: freestanding math helpers
+- `sys/ioctl.h`: device-specific I/O control operations (like framebuffer parameters, TTY window sizes, and TTY mode settings)
+- `sys/kd.h`: console graphics mode definitions (`KDSETMODE`, `KD_GRAPHICS`, `KD_TEXT`)
 
 ## Detailed References
 
 - [`libc Reference`](libc_reference.md): current libc headers and implemented APIs
 - [`Syscalls`](syscalls.md): syscall numbers, FS/SYSTEM command IDs, and wrappers
-- [`UI API`](ui_api.md): drawing and event APIs
-- [`Widget API`](widget_api.md): common widgets and interaction helpers
+- [`Raw Graphics Guide`](framebuffer_drawing.md): raw framebuffer (`/dev/fb0`) drawing, ioctls, mmap, and TTY recovery
 - [`Native TCC`](tcc.md): Native C compilation directly on BoredOS
 
 ## Typical Include Set
@@ -34,13 +33,14 @@ Primary headers are in `src/userland/libc/` and UI helpers are in `src/wm/`.
 #include <stdio.h>
 #include <unistd.h>
 #include <syscall.h>
+#include <sys/ioctl.h>
 ```
 
-For GUI apps:
+For Direct Framebuffer (Graphics) apps:
 
 ```c
-#include <libui.h>
-#include <libwidget.h>
+#include <sys/ioctl.h>
+#include <sys/kd.h>
 ```
 
 ## Build and Packaging

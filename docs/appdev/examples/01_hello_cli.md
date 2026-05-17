@@ -42,7 +42,7 @@ int main(int argc, char **argv) {
 2.  **`int main(...)`**: Every process begins execution here (managed transparently by `crt0.asm`).
 3.  **`printf(...)`**: The SDK routes this call internally directly to the `SYS_WRITE` system call, making it available on the terminal.
 4.  **`return 0`**: A successful exit code.
-5.  **`BOREDOS_APP_DESC` / `BOREDOS_APP_ICONS`**: These comment annotations are read by the build system (`gen_userland_note.sh`) and embedded as a `boredos_app_metadata_t` NOTE entry inside the compiled `.elf`. The File Explorer and Desktop use this to display the correct icon. See [`elf_metadata.md`](../elf_metadata.md) for full details.
+5.  **`BOREDOS_APP_DESC`**: This comment annotation is read by the build system (`gen_userland_note.sh`) and embedded as a `boredos_app_metadata_t` NOTE entry inside the compiled `.elf`. This lets system utilities or shells query application descriptions directly from the binary. See [`elf_metadata.md`](../elf_metadata.md) for full details.
 
 ## Running It
 

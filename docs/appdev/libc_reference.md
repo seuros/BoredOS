@@ -19,10 +19,11 @@ BoredOS libc is a compact implementation focused on the APIs used by in-tree app
 | `sys/stat.h` | `stat`/`fstat` and file mode bits |
 | `sys/types.h` | core typedefs (`pid_t`, `ssize_t`, ...) |
 | `sys/wait.h` | `waitpid` and wait macros |
+| `sys/ioctl.h` | device-specific I/O control operations |
+| `sys/kd.h` | console display mode definitions |
 | `errno.h` | errno values |
 | `time.h` | time/date utilities |
 | `math.h` | floating-point math helpers |
-| `libui.h` | GUI/window drawing API |
 
 ## stdlib.h
 
@@ -139,13 +140,17 @@ Time/date APIs and types:
 - Constants: `CLOCKS_PER_SEC`
 - Functions: `time`, `clock`, `localtime`, `gmtime`, `strftime`, `mktime`
 
-## libui.h
+## sys/ioctl.h and sys/kd.h
 
-Windowing and drawing API used by GUI apps:
-- Window/event: `ui_window_create`, `ui_get_event`, `ui_mark_dirty`, `ui_window_set_title`, `ui_window_set_resizable`
-- Drawing: `ui_draw_rect`, `ui_draw_rounded_rect_filled`, `ui_draw_string`, `ui_draw_string_bitmap`, `ui_draw_image`
-- Text metrics/scaled text: `ui_get_string_width`, `ui_get_font_height`, `ui_draw_string_scaled`, `ui_draw_string_scaled_sloped`, `ui_get_string_width_scaled`, `ui_get_font_height_scaled`
-- System UI helpers: `ui_get_screen_size`, `ui_set_font`
+`sys/ioctl.h` provides device-specific input/output control operations:
+- Framebuffer info queries (`FBIOGET_VSCREENINFO`, `FBIOGET_FSCREENINFO`)
+- TTY console window size queries (`TIOCGWINSZ`)
+- Console keyboard display mode settings (`KDSETMODE`)
+
+`sys/kd.h` provides console display constants:
+- `KDSETMODE` ioctl command (`0x4B3A`)
+- `KD_TEXT` standard console mode (`0x00`) to restore text blitting
+- `KD_GRAPHICS` graphics mode (`0x01`) to stop TTY text blitting for raw `/dev/fb0` access
 
 ## sys/stat.h and sys/types.h
 

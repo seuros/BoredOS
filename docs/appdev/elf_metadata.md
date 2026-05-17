@@ -5,13 +5,13 @@
 
 ---
 
-BoredOS supports embedding **application metadata** including a display name, short description, and icon paths directly inside `.elf` executables using a standard ELF NOTE section. The kernel reads this metadata at runtime to display correct icons in the file explorer and on the desktop, without requiring any external sidecar files.
+BoredOS supports embedding **application metadata** including a display name and a short description directly inside `.elf` executables using a standard ELF NOTE section. The kernel reads this metadata at runtime, and while the schema still contains legacy icon fields, the current text-based console TTY system no longer displays icons.
 
 ## Overview
 
 When an ELF binary is compiled for BoredOS, the build system automatically injects a special ELF NOTE entry into a dedicated section called `.note.boredos.app`. This note holds a packed C struct (`boredos_app_metadata_t`) containing the app's metadata.
 
-At runtime, the Window Manager (`wm.c`) and File Explorer (`explorer.c`) call `app_metadata_get_primary_image()` to extract the primary icon path from any `.elf` file before rendering its icon. This allows each app to display its own distinct icon instead of the generic binary icon.
+At runtime, custom tools or shells can query this metadata to get information about an executable. Legacy graphics fields (like image arrays) remain in the struct schema for backward-compatibility but are not active on the current console-only system.
 
 ---
 
@@ -258,7 +258,7 @@ Both functions route through `SYS_SYSTEM` using dedicated command IDs:
 
 ### Caching
 
-Both calls share the same kernel-side **64-entry FIFO metadata cache** used by the Window Manager and File Explorer. If the metadata for a path has already been read, the result is returned from cache without re-reading the file. Negative results (no metadata) are also cached.
+Both calls share the same kernel-side **64-entry FIFO metadata cache**. If the metadata for a path has already been read, the result is returned from cache without re-reading the file. Negative results (no metadata) are also cached. This is designed to optimize queries by shell utilities and diagnostic tools.
 
 ### Example: reading full metadata
 
@@ -281,17 +281,18 @@ void print_app_info(const char *elf_path) {
 }
 ```
 
-### Example: fetching just the icon path
+### Example: fetching just the icon path (Legacy/Diagnostic)
 
 ```c
 #include "syscall.h"
+#include "stdio.h"
 
-void load_icon_for(const char *elf_path, Image *out_icon) {
+void check_icon_for(const char *elf_path) {
     char icon_path[BOREDOS_APP_METADATA_MAX_IMAGE_PATH];
     if (sys_get_elf_primary_image(elf_path, icon_path, sizeof(icon_path))) {
-        *out_icon = image_load(icon_path);
+        printf("App has icon registered at VFS path: %s\n", icon_path);
     } else {
-        *out_icon = image_load("/Library/images/icons/colloid/xterm.png"); // fallback
+        printf("App has no custom icon registered.\n");
     }
 }
 ```

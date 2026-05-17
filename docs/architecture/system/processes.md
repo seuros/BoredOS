@@ -15,7 +15,7 @@ Key fields include:
 - **Scheduler State:** `ticks`, `sleep_until`, `is_idle`, `cpu_affinity`.
 - **Resources:**
   - `fds`: File descriptor table tracking open files, pipes, and sockets (up to `MAX_PROCESS_FDS` = 16).
-  - `gui_events`: A circular queue for Window Manager events (keyboard, mouse).
+  - `tty_id`: The ID of the controlling TTY virtual terminal for this process (0 to 9).
 - **Signals:** POSIX-like signal tracking via `signal_mask` and `signal_pending`.
 
 ## 2. The Scheduler

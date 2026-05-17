@@ -5,7 +5,7 @@
 
 ---
 
-BoredOS is a 64-bit hobbyist operating system designed for the x86_64 architecture. While it features kernel-space drivers and a built-in window manager, it supports fully-isolated userspace applications and includes a networking stack.
+BoredOS is a 64-bit hobbyist operating system designed for the x86_64 architecture. While it features kernel-space drivers and advanced console TTYs, it supports fully-isolated userspace applications and includes a networking stack.
 
 This document serves as an overview of the core architecture and the layout of the kernel source code.
 
@@ -20,7 +20,7 @@ The OS heavily relies on module separation. The `src/` directory is logically sp
 - **`mem/`**: Physical and virtual memory management. It controls page frame allocation, paging, and kernel heap operations.
 - **`net/`**: The networking stack. BoredOS relies on `lwIP` for processing IPv4 and TCP/UDP traffic, interacting with a range of NICs via `net/nic/`.
 - **`sys/`**: System calls and process management. The ELF loader resides here, alongside the Symmetric Multi-Processing (**smp.c**) bringup and Local APIC (**lapic.c**) management logic.
-- **`wm/`**: The graphical subsystem. It handles drawing primitives, window structures, font rendering, and double-buffering.
+- **`graphics/`**: The graphical subsystem. It handles drawing primitives, graphics contexts, font rendering, and double-buffering.
 - **`userland/`**: Out-of-kernel components. This includes the custom SDK/compiler environment (`libc/`) and user applications (`cli/`, `gui/`, `games/`).
 
 ## Boot Process
@@ -32,7 +32,7 @@ BoredOS uses **Limine** as its primary bootloader.
 3.  **Kernel Entry (`main.c`)**: The entry point `_start` is called on the Bootstrap Processor (BSP). It initializes the serial port, GDT/IDT, memory management, and paging.
 4.  **AP Bringup**: The BSP calls `smp_init()`, which sends the Startup Inter-Processor Interrupt (SIPI) sequence to all Application Processors (APs). Each AP initializes its own local GDT, TSS, and Page Tables before entering an idle loop.
 5.  **Driver Initialization**: PCI buses are scanned, finding the network card or disk controllers. The filesystem is mounted.
-6.  **Window Manager**: The UI is drawn on top of the Limine-provided framebuffer.
+6.  **TTY and Console**: The system initializes 10 virtual consoles (TTYs) and launches the standard command-line shell (`/bin/bsh.elf`) on the active TTY.
 
 ## Multi-Core & Scheduling
 
