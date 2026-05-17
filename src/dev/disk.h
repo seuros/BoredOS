@@ -66,7 +66,7 @@ int disk_get_count(void);
 Disk* disk_get_by_index(int index);
 
 // Auto-naming helpers
-const char* disk_get_next_dev_name(void);   // Returns "sda", "sdb", etc.
+const char* disk_get_next_dev_name(DiskType type);   // Returns "sda"/"hda", etc.
 
 // Backward compat (deprecated — wraps disk_get_by_name)
 Disk* disk_get_by_letter(char letter);

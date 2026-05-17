@@ -17,6 +17,7 @@ static Disk *disks[MAX_DISKS];
 static int disk_count = 0;
 static int next_drive_letter_idx = 0;  // For backward compat
 static int next_sd_index = 0;  // For sda, sdb, sdc...
+static int next_hd_index = 0;  // For hda, hdb, hdc...
 
 extern void serial_write(const char *str);
 extern void serial_write_num(uint64_t num);
@@ -353,13 +354,21 @@ static int ata_write_sectors(Disk *disk, uint32_t lba, uint32_t count, const uin
 
 // === Device Naming ===
 
-const char* disk_get_next_dev_name(void) {
+const char* disk_get_next_dev_name(DiskType type) {
     static char name[8];
-    name[0] = 's';
-    name[1] = 'd';
-    name[2] = 'a' + next_sd_index;
-    name[3] = 0;
-    next_sd_index++;
+    if (type == DISK_TYPE_IDE) {
+        name[0] = 'h';
+        name[1] = 'd';
+        name[2] = 'a' + next_hd_index;
+        name[3] = 0;
+        next_hd_index++;
+    } else {
+        name[0] = 's';
+        name[1] = 'd';
+        name[2] = 'a' + next_sd_index;
+        name[3] = 0;
+        next_sd_index++;
+    }
     return name;
 }
 
@@ -370,7 +379,7 @@ void disk_register(Disk *disk) {
 
     // Auto-assign devname if empty
     if (disk->devname[0] == 0) {
-        const char *n = disk_get_next_dev_name();
+        const char *n = disk_get_next_dev_name(disk->type);
         dm_strcpy(disk->devname, n);
     }
 
@@ -644,6 +653,7 @@ void disk_manager_init(void) {
     }
     disk_count = 0;
     next_sd_index = 0;
+    next_hd_index = 0;
     next_drive_letter_idx = 0;
 
     log_ok("Disk manager ready");
