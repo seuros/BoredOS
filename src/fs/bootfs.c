@@ -135,8 +135,8 @@ static int generate_metadata_content(const char *file, char *buffer, int max_siz
     int len = 0;
     
     if (strcmp(file, "metadata/boot_time") == 0) {
-        extern uint32_t wm_get_ticks(void);
-        uint32_t ticks = wm_get_ticks();
+        extern uint32_t get_ticks(void);
+        uint32_t ticks = get_ticks();
         
         strcpy(buffer, "Boot time: ");
         char time_buf[32];

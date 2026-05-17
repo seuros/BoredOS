@@ -21,6 +21,7 @@ char *strncpy(char *dest, const char *src, size_t n);
 int atoi(const char *str);
 void itoa(int n, char *buf);
 void itoa_hex(uint64_t n, char *buf);
+int text_encode_utf8(uint32_t cp, char *out);
 
 // Kernel timing utilities
 void k_delay(int iterations);
@@ -30,5 +31,6 @@ void k_shutdown(void);
 void k_beep(int freq, int ms);
 void k_beep_process(void);
 char *k_strstr(const char *haystack, const char *needle);
+uint32_t get_ticks(void);
 
 #endif

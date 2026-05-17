@@ -52,7 +52,4 @@ void* krealloc(void *ptr, size_t new_size);
 
 MemStats memory_get_stats(void);
 
-void mem_memset(void *dest, int val, size_t len);
-void mem_memcpy(void *dest, const void *src, size_t len);
-
 #endif // MEMORY_MANAGER_H

@@ -4,181 +4,492 @@
 #include "tty.h"
 #include "spinlock.h"
 #include "wait_queue.h"
-#include "../fs/vfs.h"
+#include "wm/font.h"
+#include "../mem/memory_manager.h"
+#include "../wm/graphics.h"
+#include "../core/kutils.h"
 #include <stdbool.h>
 #include <stdint.h>
 
-#define TTY_MAX 8
-#define TTY_OUT_SIZE 16384
-#define TTY_IN_SIZE 4096
+static tty_t g_ttys[TTY_COUNT];
+static int g_active_tty = 0;
+static spinlock_t g_tty_global_lock = SPINLOCK_INIT;
 
-typedef struct {
-    bool used;
-    int id;
-    char out_buf[TTY_OUT_SIZE];
-    uint32_t out_head;
-    uint32_t out_tail;
-    char in_buf[TTY_IN_SIZE];
-    uint32_t in_head;
-    uint32_t in_tail;
-    int fg_pid;
-    spinlock_t lock;
-    wait_queue_head_t wait_queue;
-} tty_t;
+#include "../core/kutils.h"
 
-static tty_t ttys[TTY_MAX] = {0};
+static void tty_queue_init(tty_queue_t *q) {
+    q->head = 0;
+    q->tail = 0;
+    wait_queue_init(&q->wait_queue);
+    memset(q->buffer, 0, TTY_IN_QUEUE_SIZE);
+}
 
-extern void mem_memset(void *dest, int val, size_t len);
+static void tty_queue_push(tty_queue_t *q, uint8_t val) {
+    uint32_t next = (q->head + 1) % TTY_IN_QUEUE_SIZE;
+    if (next != q->tail) {
+        q->buffer[q->head] = val;
+        q->head = next;
+        wait_queue_wake_all(&q->wait_queue);
+    }
+}
 
-static tty_t *tty_get(int tty_id) {
-    if (tty_id < 0 || tty_id >= TTY_MAX) return NULL;
-    if (!ttys[tty_id].used) return NULL;
-    return &ttys[tty_id];
+static int tty_queue_pop(tty_queue_t *q, uint8_t *buf, size_t len) {
+    size_t count = 0;
+    while (q->head != q->tail && count < len) {
+        buf[count++] = q->buffer[q->tail];
+        q->tail = (q->tail + 1) % TTY_IN_QUEUE_SIZE;
+    }
+    return (int)count;
+}
+
+void tty_init(void) {
+    int w = get_screen_width();
+    int h = get_screen_height();
+    size_t vfb_size = w * h * 4;
+
+    graphics_clear_back_buffer(0xFF000000);
+    graphics_mark_screen_dirty();
+    graphics_flip_buffer();
+
+    for (int i = 0; i < TTY_COUNT; i++) {
+        g_ttys[i].id = i;
+        g_ttys[i].used = true;
+        g_ttys[i].width = w;
+        g_ttys[i].height = h;
+        g_ttys[i].vfb = (uint32_t *)kmalloc(vfb_size);
+        g_ttys[i].cursor_x = 0;
+        g_ttys[i].cursor_y = 0;
+        g_ttys[i].cursor_visible = true;
+        g_ttys[i].fg_color = 0xFFFFFFFF;
+        g_ttys[i].bg_color = 0xFF000000;
+        g_ttys[i].fg_pid = -1;
+        g_ttys[i].esc_state = 0;
+        g_ttys[i].esc_num_params = 0;
+        g_ttys[i].saved_x = 0;
+        g_ttys[i].saved_y = 0;
+        g_ttys[i].lock = SPINLOCK_INIT;
+        
+        memset(g_ttys[i].vfb, 0, vfb_size);
+        for (size_t j = 0; j < vfb_size / 4; j++) g_ttys[i].vfb[j] = 0xFF000000;
+        tty_queue_init(&g_ttys[i].key_queue);
+        tty_queue_init(&g_ttys[i].mouse_queue);
+        tty_queue_init(&g_ttys[i].out_queue);
+        tty_queue_init(&g_ttys[i].char_queue);
+    }
+
+    g_active_tty = 0;
+}
+
+tty_t* tty_get(int id) {
+    if (id < 0 || id >= TTY_COUNT) return NULL;
+    return &g_ttys[id];
+}
+
+void tty_switch(int id) {
+    if (id < 0 || id >= TTY_COUNT) return;
+    uint64_t flags = spinlock_acquire_irqsave(&g_tty_global_lock);
+    g_active_tty = id;
+    spinlock_release_irqrestore(&g_tty_global_lock, flags);
+}
+
+int tty_get_active_id(void) {
+    return g_active_tty;
+}
+
+static void tty_draw_rect(tty_t *t, int x, int y, int w, int h, uint32_t color) {
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > t->width) w = t->width - x;
+    if (y + h > t->height) h = t->height - y;
+    if (w <= 0 || h <= 0) return;
+
+    for (int i = y; i < y + h; i++) {
+        uint32_t *row = &t->vfb[i * t->width + x];
+        for (int j = 0; j < w; j++) {
+            row[j] = color;
+        }
+    }
+}
+
+static void tty_draw_char(tty_t *t, int x, int y, char c, uint32_t fg, uint32_t bg) {
+    if (x < 0 || x + 8 > t->width || y < 0 || y + 8 > t->height) return;
+    unsigned char uc = (unsigned char)c;
+    if (uc > 127) uc = 0;
+    
+    const uint8_t *glyph = font8x8_basic[uc];
+    for (int row = 0; row < 8; row++) {
+        uint32_t *vfb_row = &t->vfb[(y + row) * t->width + x];
+        uint8_t glyph_row = glyph[row];
+        for (int col = 0; col < 8; col++) {
+            if ((glyph_row >> (7 - col)) & 1) {
+                vfb_row[col] = fg;
+            } else {
+                vfb_row[col] = bg;
+            }
+        }
+    }
+}
+
+static void tty_draw_cursor(tty_t *t) {
+    if (!t->cursor_visible) return;
+    if (t->cursor_x < 0 || t->cursor_x + 8 > t->width) return;
+    if (t->cursor_y < 0 || t->cursor_y + 8 > t->height) return;
+    
+    // Draw inverted block cursor
+    for (int row = 0; row < 8; row++) {
+        uint32_t *vfb_row = &t->vfb[(t->cursor_y + row) * t->width + t->cursor_x];
+        for (int col = 0; col < 8; col++) {
+            vfb_row[col] = t->fg_color;
+        }
+    }
+}
+
+static void tty_scroll(tty_t *t) {
+    int font_h = 8;
+    int vfb_size = t->width * t->height * 4;
+    
+    memmove(t->vfb, t->vfb + (font_h * t->width), vfb_size - (font_h * t->width * 4));
+    tty_draw_rect(t, 0, t->height - font_h, t->width, font_h, t->bg_color);
+    
+    t->cursor_y -= font_h;
+}
+
+void tty_write(int id, const char *data, size_t len) {
+    tty_t *t = tty_get(id);
+    if (!t) return;
+
+    uint64_t flags = spinlock_acquire_irqsave(&t->lock);
+    
+    int old_cursor_y = t->cursor_y;
+    int font_w = 8;
+    int font_h = 8;
+    
+    for (size_t i = 0; i < len; i++) {
+        char c = data[i];
+        
+        if (t->esc_state == 1) { 
+            if (c == '[') {
+                t->esc_state = 2;
+                t->esc_num_params = 0;
+                for (int p = 0; p < 8; p++) t->esc_params[p] = 0;
+            } else if (c == 's') { 
+                t->saved_x = t->cursor_x;
+                t->saved_y = t->cursor_y;
+                t->esc_state = 0;
+            } else if (c == 'u') { 
+                t->cursor_x = t->saved_x;
+                t->cursor_y = t->saved_y;
+                t->esc_state = 0;
+            } else {
+                t->esc_state = 0;
+            }
+            continue;
+        } else if (t->esc_state == 2) { // Saw ESC [
+            if (c == '?') {
+                t->esc_state = 3;  // DEC private mode
+                t->esc_num_params = 0;
+                for (int p = 0; p < 8; p++) t->esc_params[p] = 0;
+                continue;
+            }
+            if (c >= '0' && c <= '9') {
+                t->esc_params[t->esc_num_params] = t->esc_params[t->esc_num_params] * 10 + (c - '0');
+            } else if (c == ';') {
+                if (t->esc_num_params < 7) t->esc_num_params++;
+            } else {
+                // Final command character
+                if (c == 'K') { // Erase to end of line
+                    tty_draw_rect(t, t->cursor_x, t->cursor_y, t->width - t->cursor_x, font_h, t->bg_color);
+                } else if (c == 'J') { // Erase in Display
+                    int mode = t->esc_params[0];
+                    if (mode == 2) { // Entire screen
+                        tty_draw_rect(t, 0, 0, t->width, t->height, t->bg_color);
+                    } else if (mode == 1) { // From beginning to cursor
+                        tty_draw_rect(t, 0, 0, t->width, t->cursor_y, t->bg_color);
+                        tty_draw_rect(t, 0, t->cursor_y, t->cursor_x, font_h, t->bg_color);
+                    } else { // From cursor to end
+                        tty_draw_rect(t, t->cursor_x, t->cursor_y, t->width - t->cursor_x, font_h, t->bg_color);
+                        if (t->cursor_y + font_h < t->height) {
+                            tty_draw_rect(t, 0, t->cursor_y + font_h, t->width, t->height - (t->cursor_y + font_h), t->bg_color);
+                        }
+                    }
+                } else if (c == 'H' || c == 'f') { // Home / Position
+                    int row = t->esc_params[0];
+                    int col = t->esc_params[1];
+                    if (row > 0) row--; // 1-indexed to 0-indexed
+                    if (col > 0) col--;
+                    t->cursor_x = col * font_w;
+                    t->cursor_y = row * font_h;
+                    // Clamp
+                    if (t->cursor_x >= t->width) t->cursor_x = t->width - font_w;
+                    if (t->cursor_y >= t->height) t->cursor_y = t->height - font_h;
+                } else if (c == 'A') { // Up
+                    int n = t->esc_params[0]; if (n == 0) n = 1;
+                    t->cursor_y -= n * font_h;
+                    if (t->cursor_y < 0) t->cursor_y = 0;
+                } else if (c == 'B') { // Down
+                    int n = t->esc_params[0]; if (n == 0) n = 1;
+                    t->cursor_y += n * font_h;
+                    if (t->cursor_y >= t->height) t->cursor_y = t->height - font_h;
+                } else if (c == 'C') { // Forward/Right
+                    int n = t->esc_params[0]; if (n == 0) n = 1;
+                    t->cursor_x += n * font_w;
+                    if (t->cursor_x >= t->width) t->cursor_x = t->width - font_w;
+                } else if (c == 'D') { // Backward/Left
+                    int n = t->esc_params[0]; if (n == 0) n = 1;
+                    t->cursor_x -= n * font_w;
+                    if (t->cursor_x < 0) t->cursor_x = 0;
+                } else if (c == 'm') { // SGR (Color)
+                    for (int j = 0; j <= t->esc_num_params; j++) {
+                        int p = t->esc_params[j];
+                        if (p == 0) { t->fg_color = 0xFFFFFFFF; t->bg_color = 0xFF000000; }
+                        else if (p == 1) { /* Bold */ }
+                        else if (p >= 30 && p <= 37) {
+                            static const uint32_t colors[] = {
+                                0xFF000000, 0xFFFF4444, 0xFF6A9955, 0xFFFFCC00,
+                                0xFF569CD6, 0xFFC586C0, 0xFF4EC9B0, 0xFFFFFFFF
+                            };
+                            t->fg_color = colors[p - 30];
+                        } else if (p == 38) { // Extended FG
+                            if (j + 2 <= t->esc_num_params && t->esc_params[j+1] == 5) { // 256 color
+                                uint8_t color_index = (uint8_t)t->esc_params[j+2];
+                                // Basic 256 color to RGB
+                                if (color_index < 16) {
+                                     static const uint32_t colors[] = {
+                                        0xFF000000, 0xFF800000, 0xFF008000, 0xFF808000,
+                                        0xFF000080, 0xFF800080, 0xFF008080, 0xFFC0C0C0,
+                                        0xFF808080, 0xFFFF0000, 0xFF00FF00, 0xFFFFFF00,
+                                        0xFF0000FF, 0xFFFF00FF, 0xFF00FFFF, 0xFFFFFFFF
+                                     };
+                                     t->fg_color = colors[color_index];
+                                } else {
+                                     t->fg_color = 0xFFCCCCCC; // Fallback
+                                }
+                                j += 2;
+                            } else if (j + 4 <= t->esc_num_params && t->esc_params[j+1] == 2) { // TrueColor
+                                t->fg_color = 0xFF000000 | (t->esc_params[j+2] << 16) | (t->esc_params[j+3] << 8) | t->esc_params[j+4];
+                                j += 4;
+                            }
+                        } else if (p == 39) { t->fg_color = 0xFFFFFFFF; }
+                        else if (p >= 40 && p <= 47) {
+                            static const uint32_t colors[] = {
+                                0xFF000000, 0xFFFF4444, 0xFF6A9955, 0xFFFFCC00,
+                                0xFF569CD6, 0xFFC586C0, 0xFF4EC9B0, 0xFFFFFFFF
+                            };
+                            t->bg_color = colors[p - 40];
+                        } else if (p == 48) { // Extended BG
+                             if (j + 2 <= t->esc_num_params && t->esc_params[j+1] == 5) {
+                                j += 2; // Ignore for now
+                            } else if (j + 4 <= t->esc_num_params && t->esc_params[j+1] == 2) {
+                                t->bg_color = 0xFF000000 | (t->esc_params[j+2] << 16) | (t->esc_params[j+3] << 8) | t->esc_params[j+4];
+                                j += 4;
+                            }
+                        } else if (p == 49) { t->bg_color = 0xFF000000; }
+                        else if (p >= 90 && p <= 97) { // Bright FG
+                            static const uint32_t colors[] = {
+                                0xFF555555, 0xFFFF5555, 0xFF55FF55, 0xFFFFFF55,
+                                0xFF5555FF, 0xFFFF55FF, 0xFF55FFFF, 0xFFFFFFFF
+                            };
+                            t->fg_color = colors[p - 90];
+                        }
+                    }
+                } else if (c == 's') { // Save cursor
+                    t->saved_x = t->cursor_x;
+                    t->saved_y = t->cursor_y;
+                } else if (c == 'u') { // Restore cursor
+                    t->cursor_x = t->saved_x;
+                    t->cursor_y = t->saved_y;
+                }
+                t->esc_state = 0;
+            }
+            continue;
+        } else if (t->esc_state == 3) { // Saw ESC [ ?  (DEC private mode)
+            if (c >= '0' && c <= '9') {
+                t->esc_params[t->esc_num_params] = t->esc_params[t->esc_num_params] * 10 + (c - '0');
+            } else if (c == ';') {
+                if (t->esc_num_params < 7) t->esc_num_params++;
+            } else if (c == 'h' || c == 'l') {  // Set (h) or Reset (l) mode
+                // Check for cursor visibility mode (25)
+                if (t->esc_params[0] == 25) {
+                    t->cursor_visible = (c == 'h');  // h = show, l = hide
+                }
+                t->esc_state = 0;
+            } else {
+                t->esc_state = 0;
+            }
+            continue;
+        }
+
+        if (c == '\x1b') {
+            t->esc_state = 1;
+            continue;
+        }
+
+        if (c == '\n') {
+            t->cursor_x = 0;
+            t->cursor_y += font_h;
+        } else if (c == '\r') {
+            t->cursor_x = 0;
+        } else if (c == '\t') {
+            t->cursor_x = (t->cursor_x + (font_w * 4)) & ~((font_w * 4) - 1);
+        } else if (c == '\b') {
+            if (t->cursor_x >= font_w) {
+                t->cursor_x -= font_w;
+                tty_draw_rect(t, t->cursor_x, t->cursor_y, font_w, font_h, t->bg_color);
+            }
+        } else {
+            // Draw 8x8 bitmap font
+            tty_draw_char(t, t->cursor_x, t->cursor_y, c, t->fg_color, t->bg_color);
+            t->cursor_x += font_w;
+        }
+
+        if (t->cursor_x + font_w > t->width) {
+            t->cursor_x = 0;
+            t->cursor_y += font_h;
+        }
+
+        if (t->cursor_y + font_h > t->height) {
+            tty_scroll(t);
+        }
+    }
+    
+    spinlock_release_irqrestore(&t->lock, flags);
+}
+
+void tty_push_key(int id, uint8_t scancode) {
+    tty_t *t = tty_get(id);
+    if (!t) return;
+    tty_queue_push(&t->key_queue, scancode);
+}
+
+void tty_push_mouse(int id, uint8_t *packet, size_t len) {
+    tty_t *t = tty_get(id);
+    if (!t) return;
+    for (size_t i = 0; i < len; i++) {
+        tty_queue_push(&t->mouse_queue, packet[i]);
+    }
+}
+
+int tty_read_key(int id, uint8_t *buf, size_t len) {
+    tty_t *t = tty_get(id);
+    if (!t) return 0;
+    return tty_queue_pop(&t->key_queue, buf, len);
+}
+
+int tty_read_mouse(int id, uint8_t *buf, size_t len) {
+    tty_t *t = tty_get(id);
+    if (!t) return 0;
+    return tty_queue_pop(&t->mouse_queue, buf, len);
+}
+
+void tty_push_char(int id, uint8_t c) {
+    tty_t *t = tty_get(id);
+    if (!t) return;
+    tty_queue_push(&t->char_queue, c);
+}
+
+int tty_read_input(int id, char *buf, size_t len) {
+    tty_t *t = tty_get(id);
+    if (!t) return 0;
+    return tty_queue_pop(&t->char_queue, (uint8_t*)buf, len);
 }
 
 int tty_create(void) {
-    for (int i = 0; i < TTY_MAX; i++) {
-        if (!ttys[i].used) {
-            ttys[i].used = true;
-            ttys[i].id = i;
-            ttys[i].out_head = 0;
-            ttys[i].out_tail = 0;
-            ttys[i].in_head = 0;
-            ttys[i].in_tail = 0;
-            ttys[i].fg_pid = -1;
-            ttys[i].lock = SPINLOCK_INIT;
-            wait_queue_init(&ttys[i].wait_queue);
-            mem_memset(ttys[i].out_buf, 0, sizeof(ttys[i].out_buf));
-            mem_memset(ttys[i].in_buf, 0, sizeof(ttys[i].in_buf));
+    uint64_t flags = spinlock_acquire_irqsave(&g_tty_global_lock);
+    for (int i = 0; i < TTY_COUNT; i++) {
+        if (!g_ttys[i].used) {
+            g_ttys[i].used = true;
+            spinlock_release_irqrestore(&g_tty_global_lock, flags);
             return i;
         }
     }
+    spinlock_release_irqrestore(&g_tty_global_lock, flags);
     return -1;
 }
 
-int tty_destroy(int tty_id) {
-    if (tty_id < 0 || tty_id >= TTY_MAX) return -1;
-    tty_t *tty = &ttys[tty_id];
-
-    uint64_t rflags = spinlock_acquire_irqsave(&tty->lock);
-    if (!tty->used) {
-        spinlock_release_irqrestore(&tty->lock, rflags);
-        return -1;
+int tty_ioctl(int id, uint64_t request, void *arg) {
+    tty_t *t = tty_get(id);
+    if (!t) return -1;
+    
+    if (request == TIOCGWINSZ) {
+        struct winsize *ws = (struct winsize *)arg;
+        ws->ws_row = t->height / 8;
+        ws->ws_col = t->width / 8;
+        ws->ws_xpixel = t->width;
+        ws->ws_ypixel = t->height;
+        return 0;
     }
+    
+    return -1;
+}
 
-    tty->used = false;
-    tty->id = -1;
-    tty->out_head = 0;
-    tty->out_tail = 0;
-    tty->in_head = 0;
-    tty->in_tail = 0;
-    tty->fg_pid = -1;
-    mem_memset(tty->out_buf, 0, sizeof(tty->out_buf));
-    mem_memset(tty->in_buf, 0, sizeof(tty->in_buf));
-
-    spinlock_release_irqrestore(&tty->lock, rflags);
+int tty_destroy(int id) {
+    tty_t *t = tty_get(id);
+    if (!t) return -1;
+    uint64_t flags = spinlock_acquire_irqsave(&g_tty_global_lock);
+    t->used = false;
+    spinlock_release_irqrestore(&g_tty_global_lock, flags);
     return 0;
 }
 
-static int tty_write_ring(char *buf, uint32_t size, uint32_t *head, uint32_t *tail, const char *data, size_t len) {
-    int written = 0;
+void tty_write_output(int id, const char *data, size_t len) {
+    tty_t *t = tty_get(id);
+    if (!t) return;
     for (size_t i = 0; i < len; i++) {
-        uint32_t next = (*head + 1) % size;
-        if (next == *tail) break;
-        buf[*head] = data[i];
-        *head = next;
-        written++;
+        tty_queue_push(&t->out_queue, (uint8_t)data[i]);
     }
-    return written;
 }
 
-static int tty_read_ring(char *buf, uint32_t size, uint32_t *head, uint32_t *tail, char *out, size_t max_len) {
-    int read = 0;
-    while (*tail != *head && (size_t)read < max_len) {
-        out[read++] = buf[*tail];
-        *tail = (*tail + 1) % size;
+int tty_read_output(int id, char *buf, size_t len) {
+    tty_t *t = tty_get(id);
+    if (!t) return 0;
+    return tty_queue_pop(&t->out_queue, (uint8_t*)buf, len);
+}
+
+int tty_write_input(int id, const char *buf, size_t len) {
+    tty_t *t = tty_get(id);
+    if (!t) return 0;
+    for (size_t i = 0; i < len; i++) {
+        tty_queue_push(&t->char_queue, (uint8_t)buf[i]);
     }
-    return read;
+    return (int)len;
 }
 
-int tty_write_output(int tty_id, const char *data, size_t len) {
-    tty_t *tty = tty_get(tty_id);
-    if (!tty || !data || len == 0) return 0;
-
-    uint64_t rflags = spinlock_acquire_irqsave(&tty->lock);
-    int written = tty_write_ring(tty->out_buf, TTY_OUT_SIZE, &tty->out_head, &tty->out_tail, data, len);
-    spinlock_release_irqrestore(&tty->lock, rflags);
-    return written;
-}
-
-int tty_read_output(int tty_id, char *buf, size_t max_len) {
-    tty_t *tty = tty_get(tty_id);
-    if (!tty || !buf || max_len == 0) return 0;
-
-    uint64_t rflags = spinlock_acquire_irqsave(&tty->lock);
-    int read = tty_read_ring(tty->out_buf, TTY_OUT_SIZE, &tty->out_head, &tty->out_tail, buf, max_len);
-    spinlock_release_irqrestore(&tty->lock, rflags);
-    return read;
-}
-
-int tty_write_input(int tty_id, const char *data, size_t len) {
-    tty_t *tty = tty_get(tty_id);
-    if (!tty || !data || len == 0) return 0;
-
-    uint64_t rflags = spinlock_acquire_irqsave(&tty->lock);
-    int written = tty_write_ring(tty->in_buf, TTY_IN_SIZE, &tty->in_head, &tty->in_tail, data, len);
-    spinlock_release_irqrestore(&tty->lock, rflags);
-    if (written > 0) {
-        wait_queue_wake_all(&tty->wait_queue);
-    }
-    return written;
-}
-
-int tty_read_input(int tty_id, char *buf, size_t max_len) {
-    tty_t *tty = tty_get(tty_id);
-    if (!tty || !buf || max_len == 0) return 0;
-
-    uint64_t rflags = spinlock_acquire_irqsave(&tty->lock);
-    int read = tty_read_ring(tty->in_buf, TTY_IN_SIZE, &tty->in_head, &tty->in_tail, buf, max_len);
-    spinlock_release_irqrestore(&tty->lock, rflags);
-    return read;
-}
-
-int tty_set_foreground(int tty_id, int pid) {
-    tty_t *tty = tty_get(tty_id);
-    if (!tty) return -1;
-
-    uint64_t rflags = spinlock_acquire_irqsave(&tty->lock);
-    tty->fg_pid = pid;
-    spinlock_release_irqrestore(&tty->lock, rflags);
+int tty_set_foreground(int id, int pid) {
+    tty_t *t = tty_get(id);
+    if (!t) return -1;
+    t->fg_pid = pid;
     return 0;
 }
 
-int tty_get_foreground(int tty_id) {
-    tty_t *tty = tty_get(tty_id);
-    if (!tty) return -1;
-
-    uint64_t rflags = spinlock_acquire_irqsave(&tty->lock);
-    int pid = tty->fg_pid;
-    spinlock_release_irqrestore(&tty->lock, rflags);
-    return pid;
+int tty_get_foreground(int id) {
+    tty_t *t = tty_get(id);
+    if (!t) return -1;
+    return t->fg_pid;
 }
 
-int tty_poll(int tty_id, struct poll_table *pt) {
-    tty_t *tty = tty_get(tty_id);
-    if (!tty) return POLLNVAL;
+void tty_blit_active(void) {
+    tty_t *t = tty_get(g_active_tty);
+    if (!t) return;
+    
+    extern void graphics_copy_buffer(uint32_t *src);
+    graphics_copy_buffer(t->vfb);
+}
 
-    if (pt && pt->qproc) {
-        pt->qproc(&tty->wait_queue, pt);
-    }
 
+int tty_poll(int id, struct poll_table *pt) {
+    tty_t *t = tty_get(id);
+    if (!t) return 0;
+    
     int mask = 0;
-    uint64_t rflags = spinlock_acquire_irqsave(&tty->lock);
-    if (tty->in_head != tty->in_tail) {
-        mask |= POLLIN;
+    if (pt && pt->qproc) {
+        pt->qproc(&t->char_queue.wait_queue, pt);
     }
-    mask |= POLLOUT;
-    spinlock_release_irqrestore(&tty->lock, rflags);
-
+    
+    if (t->char_queue.head != t->char_queue.tail) {
+        mask |= 0x0001; // POLLIN
+    }
+    
+    mask |= 0x0004; // POLLOUT (always writable for now)
+    
     return mask;
 }

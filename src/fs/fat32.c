@@ -8,7 +8,6 @@
 #include "disk.h"
 #include <stdbool.h>
 #include <stddef.h>
-#include "wm.h"
 #include "spinlock.h"
 
 // Locks for FAT32 operations (SMP safety)
@@ -482,7 +481,6 @@ static int ramfs_write(FAT32_FileHandle *handle, const void *buffer, int size) {
             break;
         }
     }
-    wm_notify_fs_change();
     return bytes_written;
 }
 
@@ -2318,7 +2316,6 @@ bool fat32_mkdir(const char *path) {
 
     if (drive == 0) {
         bool res = realfs_mkdir_vol(root_volume, p);
-        wm_notify_fs_change();
         spinlock_release_irqrestore(&ramfs_lock, rflags);
         return res;
     } else if (drive != 'A') {
@@ -2327,7 +2324,6 @@ bool fat32_mkdir(const char *path) {
             for (int i = 0; i < real_volume_count; i++) {
                 if (real_volumes[i]->disk == d) {
                     bool res = realfs_mkdir_vol(real_volumes[i], p);
-                    wm_notify_fs_change();
                     spinlock_release_irqrestore(&ramfs_lock, rflags);
                     return res;
                 }
@@ -2372,7 +2368,6 @@ bool fat32_mkdir(const char *path) {
     entry->attributes = ATTR_DIRECTORY;
     
     kfree(normalized);
-    wm_notify_fs_change();
     spinlock_release_irqrestore(&ramfs_lock, rflags);
     return true;
 }
@@ -2406,7 +2401,6 @@ bool fat32_rmdir(const char *path) {
     
     ramfs_free_entry(entry);
     kfree(normalized);
-    wm_notify_fs_change();
     spinlock_release_irqrestore(&ramfs_lock, rflags);
     return true;
 }
@@ -2432,18 +2426,15 @@ bool fat32_delete(const char *path) {
                 result = true;
             }
             kfree(normalized);
-            if (result) wm_notify_fs_change();
         }
     } else if (drive == 0) {
         result = realfs_delete_from_vol(root_volume, p);
-        if (result) wm_notify_fs_change();
     } else {
         Disk *d = disk_get_by_letter(drive);
         if (d) {
             for (int i = 0; i < real_volume_count; i++) {
                 if (real_volumes[i]->disk == d) {
                     result = realfs_delete_from_vol(real_volumes[i], p);
-                    if (result) wm_notify_fs_change();
                     break;
                 }
             }
@@ -2608,7 +2599,6 @@ bool fat32_rename(const char *old_path, const char *new_path) {
         }
     }
     kfree(suffix);
-    wm_notify_fs_change();
     spinlock_release_irqrestore(&ramfs_lock, rflags);
     return true;
 }

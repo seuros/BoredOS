@@ -58,6 +58,7 @@ typedef struct {
 #define FS_CMD_MOUNT_INFO 21
 #define FS_CMD_POLL 22
 #define FS_CMD_SELECT 23
+#define FS_CMD_IOCTL 24
 
 #define SYSTEM_CMD_SET_BG_COLOR 1
 #define SYSTEM_CMD_SET_BG_PATTERN 2
@@ -128,6 +129,7 @@ typedef struct {
 #define SYSTEM_CMD_SIGPENDING 75
 #define SYSTEM_CMD_GET_ELF_METADATA 76
 #define SYSTEM_CMD_GET_ELF_PRIMARY_IMAGE 77
+#define SYSTEM_CMD_TTY_GET_ID 78
 
 void syscall_init(void);
 uint64_t syscall_handler_c(registers_t *regs);

@@ -5,7 +5,6 @@
 #include "cmd.h"
 #include "memory_manager.h"
 #include "graphics.h"
-#include "wm.h"
 #include "fat32.h"
 #include "rtc.h"
 #include "ps2.h"
@@ -311,7 +310,6 @@ static void vm_syscall(int id) {
             }
             
             // Trigger repaint
-            wm_mark_dirty(x, y, w, h);
             
             push(0);
             break;
@@ -492,13 +490,11 @@ int vm_exec(const uint8_t *code, int code_size) {
     vm_reset();
     
     vm_rect_count = 0;
-    wm_custom_paint_hook = vm_paint_overlay;
     
 
     // Safety check
     if (code_size > VM_MEMORY_SIZE) {
         cmd_write("VM Error: Binary too large\n");
-        wm_custom_paint_hook = NULL;
         return -1;
     }
     
@@ -515,7 +511,6 @@ int vm_exec(const uint8_t *code, int code_size) {
 
         switch (op) {
             case OP_HALT: 
-                wm_custom_paint_hook = NULL;
                 return 0;
             case OP_IMM: {
                 int val = 0;
@@ -638,10 +633,8 @@ int vm_exec(const uint8_t *code, int code_size) {
                 pop(); 
                 break;
             default: 
-                wm_custom_paint_hook = NULL;
                 return -1;
         }
     }
-    wm_custom_paint_hook = NULL;
     return 0;
 }

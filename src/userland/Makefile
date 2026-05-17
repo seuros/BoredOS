@@ -13,22 +13,26 @@ APP_METADATA_TOOL = ../../tools/gen_userland_note.sh
 APP_ICON_SOURCE_DIR = ../images/icons/colloid
 APP_METADATA_SOURCE_DOOM = games/doom/doomgeneric_boredos.c
 APP_METADATA_SOURCE_LUA = cli/third_party/lua/boredos_onelua.c
-APP_SOURCE_DIRS = . cli gui sys games net cli/third_party
+APP_SOURCE_DIRS = . cli sys net cli/third_party
+
 
 define app_source_for
 $(if $(filter doom,$1),$(APP_METADATA_SOURCE_DOOM),$(if $(filter lua,$1),$(APP_METADATA_SOURCE_LUA),$(if $(filter tcc,$1),cli/third_party/tcc/tcc.c,$(firstword $(foreach d,$(APP_SOURCE_DIRS),$(wildcard $(d)/$1.c))))))
 endef
 
 LIBC_SOURCES = $(wildcard libc/*.c)
-LIBC_OBJS = $(patsubst libc/%.c, $(BIN_DIR)/libc_%.o, $(LIBC_SOURCES)) $(BIN_DIR)/crt0.o $(BIN_DIR)/libwidget.o $(BIN_DIR)/stb_image.o
+LIBC_OBJS = $(patsubst libc/%.c, $(BIN_DIR)/libc_%.o, $(LIBC_SOURCES)) $(BIN_DIR)/crt0.o $(BIN_DIR)/stb_image.o
 
-VPATH = cli gui sys games libc net cli/third_party
-vpath %.c cli gui sys games libc net cli/third_party
+VPATH = cli sys libc net cli/third_party
+vpath %.c cli sys libc net cli/third_party
 
-APP_SOURCES_FULL = $(wildcard cli/*.c gui/*.c sys/*.c games/*.c *.c net/*.c cli/third_party/*.c)
+
+APP_SOURCES_FULL = $(wildcard cli/*.c sys/*.c *.c net/*.c cli/third_party/*.c)
+
 APP_SOURCES = $(filter-out stb_image.c, $(APP_SOURCES_FULL))
 APP_ELFS = $(patsubst %.c, $(BIN_DIR)/%.elf, $(notdir $(APP_SOURCES)))
-APP_NAMES = $(sort $(basename $(notdir $(APP_SOURCES))) doom lua)
+APP_NAMES = $(sort $(basename $(notdir $(APP_SOURCES))) lua)
+
 APP_NOTE_CSOURCES = $(patsubst %, $(BIN_DIR)/%.note.c, $(APP_NAMES))
 APP_NOTE_OBJS = $(patsubst %, $(BIN_DIR)/%.note.o, $(APP_NAMES))
 
@@ -38,7 +42,8 @@ DOOM_OBJS = $(patsubst games/doom/%.c, $(BIN_DIR)/%.o, $(DOOM_SOURCES))
 LUA_DIR = cli/third_party/lua
 LUA_CFLAGS = -std=gnu11 -ffreestanding -O2 -fno-stack-protector -fno-stack-check -fno-lto -fno-pie -m64 -march=x86-64 -mno-red-zone -isystem $(LUA_DIR)/sysinclude -I. -Ilibc -I$(LUA_DIR) -DLUA_USE_C89 -Wno-conversion -Wno-sign-conversion -Wno-double-promotion -Wno-unused-parameter -Wno-missing-declarations -Wno-shadow -Wno-undef -Wno-redundant-decls -Wno-old-style-definition -Wno-missing-prototypes -Wno-implicit-fallthrough -Wno-type-limits
 
-all: $(BIN_DIR) $(APP_ELFS) $(BIN_DIR)/doom.elf $(BIN_DIR)/lua.elf $(BIN_DIR)/tcc.elf $(BIN_DIR)/empty.o
+all: $(BIN_DIR) $(APP_ELFS) $(BIN_DIR)/lua.elf $(BIN_DIR)/tcc.elf $(BIN_DIR)/empty.o
+
 
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
@@ -49,8 +54,6 @@ $(BIN_DIR)/crt0.o: crt0.asm
 $(BIN_DIR)/libc_%.o: libc/%.c | $(BIN_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BIN_DIR)/libwidget.o: ../wm/libwidget.c | $(BIN_DIR)
-	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BIN_DIR)/stb_image.o: stb_image.c | $(BIN_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
@@ -114,14 +117,13 @@ $(BIN_DIR)/tcc.elf: $(LIBC_OBJS) $(BIN_DIR)/tcc.note.o sdk $(TCC_DIR)/tcc.c $(TC
 
 # SDK target
 SDK_DIR = sdk
-sdk: $(LIBC_OBJS) $(BIN_DIR)/libui.o
+sdk: $(LIBC_OBJS)
 	mkdir -p $(SDK_DIR)/lib $(SDK_DIR)/include/sys
 	cp libc/*.h $(SDK_DIR)/include/
 	cp libc/sys/*.h $(SDK_DIR)/include/sys/
 	x86_64-elf-ar rcs $(SDK_DIR)/lib/libboredos.a $(LIBC_OBJS)
 	cp $(SDK_DIR)/lib/libboredos.a $(SDK_DIR)/lib/libc.a
 	cp $(SDK_DIR)/lib/libboredos.a $(SDK_DIR)/lib/libm.a
-	x86_64-elf-ar rcs $(SDK_DIR)/lib/libui.a $(BIN_DIR)/libui.o
 
 clean:
 	rm -rf $(BIN_DIR) $(SDK_DIR)

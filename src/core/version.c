@@ -4,7 +4,6 @@
 #include "syscall.h"
 #include <stddef.h>
 
-extern void mem_memcpy(void *dest, const void *src, size_t len);
 
 void get_os_info(os_info_t *info) {
     if (!info) return;

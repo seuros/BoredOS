@@ -5,7 +5,6 @@
 #include "pci.h"
 #include "memory_manager.h"
 #include "io.h"
-#include "wm.h"
 #include "ahci.h"
 #include "../fs/vfs.h"
 #include "../fs/fat32.h"
@@ -442,7 +441,6 @@ void disk_register_partition(Disk *parent, uint32_t lba_offset, uint32_t sector_
                 dm_strcpy(ok_msg, "Mounted ");
                 dm_strcpy(ok_msg + 8, mount_path);
                 log_ok(ok_msg);
-                wm_notify_fs_change();
             } else {
                 char fail_msg[64];
                 dm_strcpy(fail_msg, "Failed to mount ");

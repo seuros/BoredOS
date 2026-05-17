@@ -5,6 +5,8 @@
 
 #include "memory_manager.h"
 #include "vfs.h"
+#include "../core/kutils.h"
+
 
 #define APP_METADATA_CACHE_SIZE 64
 
@@ -37,17 +39,12 @@ static bool am_str_eq(const char *a, const char *b) {
 
 static bool am_mem_eq(const uint8_t *a, const uint8_t *b, size_t len) {
     if (!a || !b) return false;
-    for (size_t i = 0; i < len; i++) {
-        if (a[i] != b[i]) return false;
-    }
-    return true;
+    return memcmp(a, b, len) == 0;
 }
 
 static void am_mem_copy(uint8_t *dest, const uint8_t *src, size_t len) {
     if (!dest || !src) return;
-    for (size_t i = 0; i < len; i++) {
-        dest[i] = src[i];
-    }
+    memcpy(dest, src, len);
 }
 
 static void am_str_copy(char *dest, const char *src, size_t dest_size) {

@@ -2,7 +2,6 @@
 // This software is released under the GNU General Public License v3.0. See LICENSE file for details.
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include "kutils.h"
-#include "wm.h"
 #include "io.h"
 
 #include "../drivers/ACPI/acpi.h"
@@ -153,8 +152,8 @@ void k_sleep(int ms) {
     uint32_t ticks = ms / 16;
     if (ticks == 0 && ms > 0) ticks = 1;
     
-    uint32_t target = wm_get_ticks() + ticks;
-    while (wm_get_ticks() < target) {
+    uint32_t target = get_ticks() + ticks;
+    while (get_ticks() < target) {
         __asm__ __volatile__("hlt");
     }
 }
@@ -213,3 +212,37 @@ char *k_strstr(const char *haystack, const char *needle) {
     return NULL;
 }
 
+int text_encode_utf8(uint32_t cp, char *out) {
+    if (cp <= 0x7F) {
+        out[0] = (char)cp;
+        return 1;
+    }
+    if (cp <= 0x7FF) {
+        out[0] = (char)(0xC0 | (cp >> 6));
+        out[1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    if (cp <= 0xFFFF) {
+        out[0] = (char)(0xE0 | (cp >> 12));
+        out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    if (cp <= 0x10FFFF) {
+        out[0] = (char)(0xF0 | (cp >> 18));
+        out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+        out[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[3] = (char)(0x80 | (cp & 0x3F));
+        return 4;
+    }
+    // Replacement character
+    out[0] = (char)0xEF;
+    out[1] = (char)0xBF;
+    out[2] = (char)0xBD;
+    return 3;
+}
+
+uint32_t get_ticks(void) {
+    extern volatile uint64_t kernel_ticks;
+    return (uint32_t)kernel_ticks;
+}

@@ -68,7 +68,14 @@ typedef struct vfs_fs_ops {
     uint32_t (*get_position)(void *file_handle);
     uint32_t (*get_size)(void *file_handle);
     int      (*poll)(void *fs_private, void *file_handle, struct poll_table *pt);
+    int      (*ioctl)(void *fs_private, void *file_handle, uint64_t request, void *arg);
 } vfs_fs_ops_t;
+
+#define DEVICE_TYPE_BLOCK       0
+#define DEVICE_TYPE_TTY         1
+#define DEVICE_TYPE_KEYBOARD    2
+#define DEVICE_TYPE_MOUSE       3
+#define DEVICE_TYPE_FRAMEBUFFER 4
 
 // VFS file handle
 struct vfs_file {
@@ -77,7 +84,9 @@ struct vfs_file {
     bool valid;
     uint64_t position;      // Current Seek Position (for raw devices/fallbacks)
     bool is_device;         // Is this a raw device handle?
+    int device_type;        // DEVICE_TYPE_BLOCK, TTY, etc.
 };
+
 
 // Mount entry
 struct vfs_mount {

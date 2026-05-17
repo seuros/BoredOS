@@ -9,6 +9,8 @@
 #include "io.h"
 #include <stddef.h>
 #include "../sys/spinlock.h"
+#include "../core/kutils.h"
+
 
 extern void serial_write(const char *str);
 extern void serial_write_num(uint64_t num);
@@ -100,7 +102,7 @@ static void ahci_port_rebase(ahci_port_state_t *ps) {
     // Allocate command list (1KB, 1024-byte aligned)
     ps->cmd_list = (HBA_CMD_HEADER*)kmalloc_aligned(1024, 1024);
     if (!ps->cmd_list) return;
-    mem_memset(ps->cmd_list, 0, 1024);
+    memset(ps->cmd_list, 0, 1024);
 
     uint64_t clb_phys = v2p((uint64_t)ps->cmd_list);
     port->clb = (uint32_t)(clb_phys & 0xFFFFFFFF);
@@ -109,7 +111,7 @@ static void ahci_port_rebase(ahci_port_state_t *ps) {
     // Allocate FIS receive area (256 bytes, 256-byte aligned)
     ps->fis_base = kmalloc_aligned(256, 256);
     if (!ps->fis_base) return;
-    mem_memset(ps->fis_base, 0, 256);
+    memset(ps->fis_base, 0, 256);
 
     uint64_t fb_phys = v2p((uint64_t)ps->fis_base);
     port->fb = (uint32_t)(fb_phys & 0xFFFFFFFF);
@@ -118,7 +120,7 @@ static void ahci_port_rebase(ahci_port_state_t *ps) {
     int cmd_tbl_size = sizeof(HBA_CMD_TBL) + 32 * sizeof(HBA_PRDT_ENTRY);
     ps->cmd_tbl = (HBA_CMD_TBL*)kmalloc_aligned(cmd_tbl_size, 256);
     if (!ps->cmd_tbl) return;
-    mem_memset(ps->cmd_tbl, 0, cmd_tbl_size);
+    memset(ps->cmd_tbl, 0, cmd_tbl_size);
 
     uint64_t ctba_phys = v2p((uint64_t)ps->cmd_tbl);
     for (int i = 0; i < 32; i++) {
@@ -157,7 +159,7 @@ static int ahci_identify(int port_num, uint32_t *sectors, char *model) {
     cmd_hdr->prdtl = 1;
 
     HBA_CMD_TBL *cmd_tbl = ps->cmd_tbl;
-    mem_memset(cmd_tbl, 0, sizeof(HBA_CMD_TBL) + 32 * sizeof(HBA_PRDT_ENTRY));
+    memset(cmd_tbl, 0, sizeof(HBA_CMD_TBL) + 32 * sizeof(HBA_PRDT_ENTRY));
 
     uint16_t *buf = (uint16_t*)kmalloc_aligned(512, 512);
     uint64_t phys = v2p((uint64_t)buf);
@@ -232,7 +234,7 @@ int ahci_read_sectors(int port_num, uint64_t lba, uint32_t count, uint8_t *buffe
     cmd_hdr->prdtl = 1;
 
     HBA_CMD_TBL *cmd_tbl = ps->cmd_tbl;
-    mem_memset(cmd_tbl, 0, sizeof(HBA_CMD_TBL) + 32 * sizeof(HBA_PRDT_ENTRY));
+    memset(cmd_tbl, 0, sizeof(HBA_CMD_TBL) + 32 * sizeof(HBA_PRDT_ENTRY));
 
     extern uint64_t paging_get_pml4_phys(void);
     extern uint64_t paging_virt2phys(uint64_t pml4_phys, uint64_t virtual_addr);
@@ -327,7 +329,7 @@ int ahci_write_sectors(int port_num, uint64_t lba, uint32_t count, const uint8_t
     cmd_hdr->prdtl = 1;
 
     HBA_CMD_TBL *cmd_tbl = ps->cmd_tbl;
-    mem_memset(cmd_tbl, 0, sizeof(HBA_CMD_TBL) + 32 * sizeof(HBA_PRDT_ENTRY));
+    memset(cmd_tbl, 0, sizeof(HBA_CMD_TBL) + 32 * sizeof(HBA_PRDT_ENTRY));
 
     // Setup PRDT - handle buffers spanning multiple physical pages
     extern uint64_t paging_get_pml4_phys(void);

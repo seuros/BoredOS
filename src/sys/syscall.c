@@ -4,9 +4,9 @@
 #include "syscall.h"
 #include "gdt.h"
 #include "memory_manager.h"
-#include "gui_ipc.h"
 #include "process.h"
-#include "wm.h"
+#include "vfs.h"
+
 #include "fat32.h"
 #include "vfs.h"
 #include "paging.h"
@@ -110,114 +110,6 @@ void syscall_init(void) {
     wrmsr(MSR_FMASK, 0x200); 
 }
 
-static void user_window_close(Window *win) {
-    process_t *proc = process_get_by_ui_window(win);
-    if (!proc) return;
-    gui_event_t ev = { .type = GUI_EVENT_CLOSE };
-    process_push_gui_event(proc, &ev);
-}
-
-static void user_window_paint(Window *win) {
-    process_t *proc = process_get_by_ui_window(win);
-    if (!proc) return;
-    gui_event_t ev = { .type = GUI_EVENT_PAINT };
-    process_push_gui_event(proc, &ev);
-}
-
-static void user_window_click(Window *win, int x, int y) {
-    process_t *proc = process_get_by_ui_window(win);
-    if (!proc) return;
-    gui_event_t ev = { .type = GUI_EVENT_CLICK, .arg1 = x, .arg2 = y };
-    process_push_gui_event(proc, &ev);
-}
-
-static void user_window_right_click(Window *win, int x, int y) {
-    process_t *proc = process_get_by_ui_window(win);
-    if (!proc) return;
-    gui_event_t ev = { .type = GUI_EVENT_RIGHT_CLICK, .arg1 = x, .arg2 = y };
-    process_push_gui_event(proc, &ev);
-}
-
-static void user_window_mouse_down(Window *win, int x, int y) {
-    process_t *proc = process_get_by_ui_window(win);
-    if (!proc) return;
-    gui_event_t ev = { .type = GUI_EVENT_MOUSE_DOWN, .arg1 = x, .arg2 = y };
-    process_push_gui_event(proc, &ev);
-}
-
-static void user_window_mouse_up(Window *win, int x, int y) {
-    process_t *proc = process_get_by_ui_window(win);
-    if (!proc) return;
-    gui_event_t ev = { .type = GUI_EVENT_MOUSE_UP, .arg1 = x, .arg2 = y };
-    process_push_gui_event(proc, &ev);
-}
-
-static void user_window_mouse_move(Window *win, int x, int y, uint8_t buttons) {
-    process_t *proc = process_get_by_ui_window(win);
-    if (!proc) return;
-    gui_event_t ev = { .type = GUI_EVENT_MOUSE_MOVE, .arg1 = x, .arg2 = y, .arg3 = buttons };
-    process_push_gui_event(proc, &ev);
-}
-
-// Helper function for WM to send mouse events
-void syscall_send_mouse_move_event(Window *win, int x, int y, uint8_t buttons) {
-    if (!win) return;
-    user_window_mouse_move(win, x, y, buttons);
-}
-
-void syscall_send_mouse_down_event(Window *win, int x, int y) {
-    if (!win) return;
-    user_window_mouse_down(win, x, y);
-}
-
-void syscall_send_mouse_up_event(Window *win, int x, int y) {
-    if (!win) return;
-    user_window_mouse_up(win, x, y);
-}
-
-static void user_window_key(Window *win, int legacy, uint16_t keycode, uint32_t codepoint, uint32_t mods, bool pressed) {
-    process_t *proc = process_get_by_ui_window(win);
-    if (!proc) return;
-
-    gui_event_t ev = {
-        .type = pressed ? GUI_EVENT_KEY : GUI_EVENT_KEYUP,
-        .arg1 = legacy,
-        .arg2 = (int)keycode,
-        .arg3 = (int)mods,
-        .arg4 = (int)codepoint
-    };
-    process_push_gui_event(proc, &ev);
-}
-
-static void user_window_resize(Window *win, int w, int h) {
-    if (!win) return;
-    if (w <= 0 || h <= 0) return;
-    
-    extern void* kmalloc(size_t size);
-    extern void kfree(void* ptr);
-    extern void serial_write(const char *str);
-    
-    if (win->pixels) kfree(win->pixels);
-    if (win->comp_pixels) kfree(win->comp_pixels);
-    
-    win->pixels = (uint32_t *)kmalloc(w * h * sizeof(uint32_t));
-    win->comp_pixels = (uint32_t *)kmalloc(w * h * sizeof(uint32_t));
-    
-    win->w = w;
-    win->h = h;
-    
-    if (win->pixels) {
-        extern void mem_memset(void *dest, int val, size_t len);
-        mem_memset(win->pixels, 0, w * h * sizeof(uint32_t));
-    }
-
-    process_t *proc = process_get_by_ui_window(win);
-    if (proc) {
-        gui_event_t ev = { .type = GUI_EVENT_RESIZE, .arg1 = w, .arg2 = h };
-        process_push_gui_event(proc, &ev);
-    }
-}
-
 typedef struct {
     registers_t *regs;
     uint64_t arg1;
@@ -228,784 +120,6 @@ typedef struct {
 } syscall_args_t;
 
 typedef uint64_t (*syscall_handler_fn)(const syscall_args_t *args);
-static uint64_t gui_cmd_window_create(const syscall_args_t *args) {
-    extern void serial_write(const char *str);
-    process_t *proc = process_get_current();
-    const char *title = (const char *)args->arg2;
-    
-    serial_write("[WM] CreateWindow: ");
-    serial_write(title ? title : "Unknown");
-    serial_write("\n");
-    uint64_t *u_params = (uint64_t *)args->arg3;
-    if (!u_params) {
-        serial_write("[WM] Error - params is NULL\n");
-        return 0;
-    }
-
-    // Copy params from user space to kernel space for safety
-    uint64_t params[4];
-    for (int i = 0; i < 4; i++) params[i] = u_params[i];
-    
-    Window *win = kmalloc(sizeof(Window));
-    if (!win) {
-        serial_write("[WM] Error - kmalloc failed for Window\n");
-        return 0;
-    }
-    
-    extern void mem_memset(void *dest, int val, size_t len);
-    mem_memset(win, 0, sizeof(Window));
-
-    // Copy title from user space to kernel space so wm.c can access it safely
-    int title_len = 0;
-    if (title) {
-        while (title[title_len] && title_len < 255) title_len++;
-    }
-    
-    char *kernel_title = kmalloc(title_len + 1);
-    if (kernel_title) {
-        for (int i = 0; i < title_len; i++) {
-            kernel_title[i] = title[i];
-        }
-        kernel_title[title_len] = '\0';
-    } else {
-        serial_write("[WM] Warning: kernel_title kmalloc failed\n");
-    }
-    
-    // Basic initialization
-    win->title = kernel_title ? kernel_title : "Unknown";
-    win->x = (int)params[0];
-    win->y = (int)params[1];
-    win->w = (int)params[2];
-    win->h = (int)params[3];
-    
-    // Sanity checks for dimensions
-    if (win->w <= 0 || win->w > 4096) win->w = 400;
-    if (win->h <= 0 || win->h > 4096) win->h = 400;
-
-    win->visible = true;
-    win->focused = true;
-    win->z_index = 0;
-    win->cursor_pos = 0;
-    win->data = proc;
-    win->font = NULL;
-    win->lock = SPINLOCK_INIT;
-    
-    size_t pixel_size = 0;
-    // Safe allocation
-    size_t client_h = win->h - 20;
-    if (win->w <= 0 || win->h <= 20) {
-        // Invalid dimensions, but prevent underflow/bad alloc
-        win->pixels = NULL;
-        win->comp_pixels = NULL;
-    } else {
-        pixel_size = (size_t)win->w * client_h * 4;
-        win->pixels = kmalloc(pixel_size);
-        win->comp_pixels = kmalloc(pixel_size);
-    }
-    
-    if (win->pixels) {
-        extern void mem_memset(void *dest, int val, size_t len);
-        mem_memset(win->pixels, 0, pixel_size);
-    }
-    if (win->comp_pixels) {
-        extern void mem_memset(void *dest, int val, size_t len);
-        mem_memset(win->comp_pixels, 0, pixel_size);
-    }
-    
-    serial_write("[WM] Buffers ready\n");
-
-    // Set callbacks
-    win->paint = user_window_paint;
-    win->handle_click = user_window_click;
-    win->handle_right_click = user_window_right_click;
-    win->handle_mouse_down = user_window_mouse_down;
-    win->handle_mouse_up = user_window_mouse_up;
-    win->handle_mouse_move = user_window_mouse_move;
-    win->handle_close = user_window_close;
-    win->handle_key = user_window_key;
-    win->handle_resize = user_window_resize;
-    win->resizable = false; // Default to false, can be enabled via syscall
-    
-    // Store owner PID to allow safe detachment during window destruction.
-    // This prevents Use-After-Free when a process continues drawing after its window is closed.
-    win->owner_pid = proc->pid;
-    proc->ui_window = win;
-    wm_add_window(win);
-    wm_mark_dirty(0, 0, get_screen_width(), 30);
-    
-    return (uint64_t)win;
-}
-
-static uint64_t gui_cmd_draw_rect(const syscall_args_t *args) {
-    Window *win = (Window *)args->arg2;
-    uint64_t *u_params = (uint64_t *)args->arg3;
-    uint32_t color = (uint32_t)args->arg4;
-    process_t *proc = process_get_current();
-
-    if (win && u_params && proc && proc->ui_window == win) {
-        uint64_t params[4];
-        for (int i = 0; i < 4; i++) params[i] = u_params[i];
-
-        extern void draw_rect(int x, int y, int w, int h, uint32_t color);
-        extern void graphics_set_render_target(uint32_t *buffer, int w, int h);
-        
-        uint64_t rflags = spinlock_acquire_irqsave(&win->lock);
-        
-        if (win->pixels) {
-            int rx = (int)params[0]; int ry = (int)params[1];
-            int rw = (int)params[2]; int rh = (int)params[3];
-            if (rx < 0) { rw += rx; rx = 0; }
-            if (ry < 0) { rh += ry; ry = 0; }
-            if (rx + rw > win->w) rw = win->w - rx;
-            if (ry + rh > (win->h - 20)) rh = (win->h - 20) - ry;
-            
-            if (rw > 0 && rh > 0) {
-                graphics_set_render_target(win->pixels, win->w, win->h - 20);
-                draw_rect(rx, ry, rw, rh, color);
-                graphics_set_render_target(NULL, 0, 0);
-            }
-        } else {
-            uint64_t wflags = wm_lock_acquire();
-            draw_rect(win->x + (int)params[0], win->y + (int)params[1], (int)params[2], (int)params[3], color);
-            wm_lock_release(wflags);
-        }
-        
-        spinlock_release_irqrestore(&win->lock, rflags);
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_draw_rounded_rect_filled(const syscall_args_t *args) {
-    Window *win = (Window *)args->arg2;
-    uint64_t *u_params = (uint64_t *)args->arg3;
-    uint32_t color = (uint32_t)args->arg4;
-    process_t *proc = process_get_current();
-
-    if (win && u_params && proc && proc->ui_window == win) {
-        uint64_t params[5];
-        for (int i = 0; i < 5; i++) params[i] = u_params[i];
-
-        extern void draw_rounded_rect_filled(int x, int y, int w, int h, int radius, uint32_t color);
-        extern void graphics_set_render_target(uint32_t *buffer, int w, int h);
-        
-        uint64_t rflags = spinlock_acquire_irqsave(&win->lock);
-        
-        if (win->pixels) {
-            int rx = (int)params[0]; int ry = (int)params[1];
-            int rw = (int)params[2]; int rh = (int)params[3];
-            int rr = (int)params[4];
-            if (rx < 0) { rw += rx; rx = 0; }
-            if (ry < 0) { rh += ry; ry = 0; }
-            if (rx + rw > win->w) rw = win->w - rx;
-            if (ry + rh > (win->h - 20)) rh = (win->h - 20) - ry;
-
-            if (rw > 0 && rh > 0) {
-                graphics_set_render_target(win->pixels, win->w, win->h - 20);
-                draw_rounded_rect_filled(rx, ry, rw, rh, rr, color);
-                graphics_set_render_target(NULL, 0, 0);
-            }
-        }
-        
-        spinlock_release_irqrestore(&win->lock, rflags);
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_draw_string(const syscall_args_t *args) {
-    Window *win = (Window *)args->arg2;
-    uint64_t coords = args->arg3;
-    int ux = coords & 0xFFFFFFFF;
-    int uy = coords >> 32;
-    const char *user_str = (const char *)args->arg4;
-    uint32_t color = (uint32_t)args->arg5;
-    process_t *proc = process_get_current();
-
-    if (win && user_str && proc && proc->ui_window == win) {
-        extern void draw_string(int x, int y, const char *str, uint32_t color);
-        extern void graphics_set_render_target(uint32_t *buffer, int w, int h);
-        
-        // Copy string safely to kernel stack buffer
-        char kernel_str[256];
-        int i = 0;
-        while (i < 255 && user_str[i]) {
-            kernel_str[i] = user_str[i];
-            i++;
-        }
-        kernel_str[i] = 0;
-
-        uint64_t rflags = spinlock_acquire_irqsave(&win->lock);
-        
-        ttf_font_t *font = win->font ? (ttf_font_t*)win->font : graphics_get_current_ttf();
-
-        if (win->pixels) {
-            if (ux >= -100 && ux < win->w && uy >= -100 && uy < (win->h - 20)) {
-                graphics_set_render_target(win->pixels, win->w, win->h - 20);
-                if (font) {
-                    int baseline = uy + font_manager_get_font_ascent_scaled(font, font->pixel_height) - 2;
-                    int cur_x = ux;
-                    const char *s = kernel_str;
-                    int start_x = cur_x;
-                    while (*s) {
-                        uint32_t codepoint = utf8_decode(&s);
-                        if (codepoint == '\n') {
-                            cur_x = start_x;
-                            baseline += font_manager_get_font_line_height_scaled(font, font->pixel_height);
-                        } else if (codepoint == '\t') {
-                            cur_x += font_manager_get_codepoint_width_scaled(font, ' ', font->pixel_height) * 4;
-                        } else {
-                            font_manager_render_char_scaled(font, cur_x, baseline, codepoint, color, font->pixel_height, put_pixel);
-                            cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, font->pixel_height);
-                        }
-                    }
-                } else {
-                    draw_string(ux, uy, kernel_str, color);
-                }
-                graphics_set_render_target(NULL, 0, 0);
-            }
-        } else {
-            uint64_t wflags = wm_lock_acquire();
-            if (font) {
-                int baseline = win->y + uy + font_manager_get_font_ascent_scaled(font, font->pixel_height) - 2;
-                int cur_x = win->x + ux;
-                const char *s = kernel_str;
-                int start_x = cur_x;
-                while (*s) {
-                    uint32_t codepoint = utf8_decode(&s);
-                    if (codepoint == '\n') {
-                        cur_x = start_x;
-                        baseline += font_manager_get_font_line_height_scaled(font, font->pixel_height);
-                    } else if (codepoint == '\t') {
-                        cur_x += font_manager_get_codepoint_width_scaled(font, ' ', font->pixel_height) * 4;
-                    } else {
-                        font_manager_render_char_scaled(font, cur_x, baseline, codepoint, color, font->pixel_height, put_pixel);
-                        cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, font->pixel_height);
-                    }
-                }
-            } else {
-                draw_string(win->x + ux, win->y + uy, kernel_str, color);
-            }
-            wm_lock_release(wflags);
-        }
-        
-        spinlock_release_irqrestore(&win->lock, rflags);
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_draw_string_bitmap(const syscall_args_t *args) {
-    Window *win = (Window *)args->arg2;
-    uint64_t coords = args->arg3;
-    int ux = coords & 0xFFFFFFFF;
-    int uy = coords >> 32;
-    const char *user_str = (const char *)args->arg4;
-    uint32_t color = (uint32_t)args->arg5;
-    if (win && user_str) {
-        extern void draw_string_bitmap(int x, int y, const char *str, uint32_t color);
-        extern void graphics_set_render_target(uint32_t *buffer, int w, int h);
-        
-        // Copy string safely to kernel stack buffer
-        char kernel_str[256];
-        int i = 0;
-        while (i < 255 && user_str[i]) {
-            kernel_str[i] = user_str[i];
-            i++;
-        }
-        kernel_str[i] = 0;
-
-        uint64_t rflags;
-        bool use_wm_lock = (win->pixels == NULL);
-        if (use_wm_lock) rflags = wm_lock_acquire();
-        else rflags = spinlock_acquire_irqsave(&win->lock);
-        
-        if (win->pixels) {
-            if (ux >= -100 && ux < win->w && uy >= -100 && uy < (win->h - 20)) {
-                graphics_set_render_target(win->pixels, win->w, win->h - 20);
-                draw_string_bitmap(ux, uy, kernel_str, color);
-                graphics_set_render_target(NULL, 0, 0);
-            }
-        } else {
-            draw_string_bitmap(win->x + ux, win->y + uy, kernel_str, color);
-        }
-        
-        if (use_wm_lock) wm_lock_release(rflags);
-        else spinlock_release_irqrestore(&win->lock, rflags);
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_draw_string_scaled(const syscall_args_t *args) {
-    Window *win = (Window *)args->arg2;
-    uint64_t coords = args->arg3;
-    int ux = coords & 0xFFFFFFFF;
-    int uy = coords >> 32;
-    const char *user_str = (const char *)args->arg4;
-    uint64_t packed = args->arg5;
-    uint32_t color = packed & 0xFFFFFFFF;
-    uint32_t scale_bits = packed >> 32;
-    float scale = *(float*)&scale_bits;
-
-    if (win && user_str) {
-        extern void draw_string_scaled(int x, int y, const char *str, uint32_t color, float scale);
-        extern void graphics_set_render_target(uint32_t *buffer, int w, int h);
-        
-        // Copy string safely to kernel stack buffer
-        char kernel_str[256];
-        int i = 0;
-        while (i < 255 && user_str[i]) {
-            kernel_str[i] = user_str[i];
-            i++;
-        }
-        kernel_str[i] = 0;
-
-        uint64_t rflags;
-        bool use_wm_lock = (win->pixels == NULL);
-        if (use_wm_lock) rflags = wm_lock_acquire();
-        else rflags = spinlock_acquire_irqsave(&win->lock);
-        
-        ttf_font_t *font = win->font ? (ttf_font_t*)win->font : graphics_get_current_ttf();
-
-        if (win->pixels) {
-            if (ux >= -100 && ux < win->w && uy >= -100 && uy < (win->h - 20)) {
-                graphics_set_render_target(win->pixels, win->w, win->h - 20);
-                if (font) {
-                    int baseline = uy + font_manager_get_font_ascent_scaled(font, scale) - 2;
-                    int cur_x = ux;
-                    const char *s = kernel_str;
-                    int start_x = cur_x;
-                    while (*s) {
-                        uint32_t codepoint = utf8_decode(&s);
-                        if (codepoint == '\n') {
-                            cur_x = start_x;
-                            baseline += font_manager_get_font_line_height_scaled(font, scale);
-                        } else if (codepoint == '\t') {
-                            cur_x += font_manager_get_codepoint_width_scaled(font, ' ', scale) * 4;
-                        } else {
-                            font_manager_render_char_scaled(font, cur_x, baseline, codepoint, color, scale, put_pixel);
-                            cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, scale);
-                        }
-                    }
-                } else {
-                    draw_string_scaled(ux, uy, kernel_str, color, scale);
-                }
-                graphics_set_render_target(NULL, 0, 0);
-            }
-        } else {
-            if (font) {
-                int baseline = win->y + uy + font_manager_get_font_ascent_scaled(font, scale) - 2;
-                int cur_x = win->x + ux;
-                const char *s = kernel_str;
-                int start_x = cur_x;
-                while (*s) {
-                    uint32_t codepoint = utf8_decode(&s);
-                    if (codepoint == '\n') {
-                        cur_x = start_x;
-                        baseline += font_manager_get_font_line_height_scaled(font, scale);
-                    } else if (codepoint == '\t') {
-                        cur_x += font_manager_get_codepoint_width_scaled(font, ' ', scale) * 4;
-                    } else {
-                        font_manager_render_char_scaled(font, cur_x, baseline, codepoint, color, scale, put_pixel);
-                        cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, scale);
-                    }
-                }
-            } else {
-                draw_string_scaled(win->x + ux, win->y + uy, kernel_str, color, scale);
-            }
-        }
-        
-        if (use_wm_lock) wm_lock_release(rflags);
-        else spinlock_release_irqrestore(&win->lock, rflags);
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_draw_string_scaled_sloped(const syscall_args_t *args) {
-    Window *win = (Window *)args->arg2;
-    uint64_t coords = args->arg3;
-    int ux = coords & 0xFFFFFFFF;
-    int uy = coords >> 32;
-    const char *user_str = (const char *)args->arg4;
-    
-    // Unpack color, scale, slope from arg5
-    uint64_t packed1 = args->arg5;
-    uint32_t color = packed1 & 0xFFFFFFFF;
-    uint32_t scale_bits = packed1 >> 32;
-    float scale = *(float*)&scale_bits;
-    
-    uint64_t arg6 = args->regs->r9;
-    uint32_t slope_bits = arg6 & 0xFFFFFFFF;
-    float slope = *(float*)&slope_bits;
-    
-    if (win && user_str) {
-        extern void draw_string_scaled_sloped(int x, int y, const char *str, uint32_t color, float scale, float slope);
-        extern void graphics_set_render_target(uint32_t *buffer, int w, int h);
-        
-        // Copy string safely to kernel stack buffer
-        char kernel_str[256];
-        int i = 0;
-        while (i < 255 && user_str[i]) {
-            kernel_str[i] = user_str[i];
-            i++;
-        }
-        kernel_str[i] = 0;
-
-        uint64_t rflags;
-        bool use_wm_lock = (win->pixels == NULL);
-        if (use_wm_lock) rflags = wm_lock_acquire();
-        else rflags = spinlock_acquire_irqsave(&win->lock);
-        
-        ttf_font_t *font = win->font ? (ttf_font_t*)win->font : graphics_get_current_ttf();
-
-        if (win->pixels) {
-            if (ux >= -100 && ux < win->w && uy >= -100 && uy < (win->h - 20)) {
-                graphics_set_render_target(win->pixels, win->w, win->h - 20);
-                if (font) {
-                    int baseline = uy + font_manager_get_font_ascent_scaled(font, scale) - 2;
-                    int cur_x = ux;
-                    const char *s = kernel_str;
-                    int start_x = cur_x;
-                    while (*s) {
-                        extern void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, uint32_t codepoint, uint32_t color, float scale, float slope, void (*put_pixel_fn)(int, int, uint32_t));
-                        uint32_t codepoint = utf8_decode(&s);
-                        if (codepoint == '\n') {
-                            cur_x = start_x;
-                            baseline += font_manager_get_font_line_height_scaled(font, scale);
-                        } else if (codepoint == '\t') {
-                            cur_x += font_manager_get_codepoint_width_scaled(font, ' ', scale) * 4;
-                        } else {
-                            font_manager_render_char_sloped(font, cur_x, baseline, codepoint, color, scale, slope, put_pixel);
-                            cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, scale);
-                        }
-                    }
-                } else {
-                    draw_string_scaled_sloped(ux, uy, kernel_str, color, scale, slope);
-                }
-                graphics_set_render_target(NULL, 0, 0);
-            }
-        } else {
-            if (font) {
-                int baseline = win->y + uy + font_manager_get_font_ascent_scaled(font, scale) - 2;
-                int cur_x = win->x + ux;
-                const char *s = kernel_str;
-                int start_x = cur_x;
-                while (*s) {
-                    extern void font_manager_render_char_sloped(ttf_font_t *font, int x, int y, uint32_t codepoint, uint32_t color, float scale, float slope, void (*put_pixel_fn)(int, int, uint32_t));
-                    uint32_t codepoint = utf8_decode(&s);
-                    if (codepoint == '\n') {
-                        cur_x = start_x;
-                        baseline += font_manager_get_font_line_height_scaled(font, scale);
-                    } else if (codepoint == '\t') {
-                        cur_x += font_manager_get_codepoint_width_scaled(font, ' ', scale) * 4;
-                    } else {
-                        font_manager_render_char_sloped(font, cur_x, baseline, codepoint, color, scale, slope, put_pixel);
-                        cur_x += font_manager_get_codepoint_width_scaled(font, codepoint, scale);
-                    }
-                }
-            } else {
-                draw_string_scaled_sloped(win->x + ux, win->y + uy, kernel_str, color, scale, slope);
-            }
-        }
-        
-        if (use_wm_lock) wm_lock_release(rflags);
-        else spinlock_release_irqrestore(&win->lock, rflags);
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_draw_image(const syscall_args_t *args) {
-    Window *win = (Window *)args->arg2;
-    uint64_t *u_params = (uint64_t *)args->arg3;
-    uint32_t *image_data = (uint32_t *)args->arg4;
-    process_t *proc = process_get_current();
-
-    if (win && u_params && image_data && proc && proc->ui_window == win) {
-        uint64_t params[4];
-        for (int i = 0; i < 4; i++) params[i] = u_params[i];
-        
-        uint64_t rflags = spinlock_acquire_irqsave(&win->lock);
-        
-        if (win->pixels) {
-            int rx = (int)params[0]; int ry = (int)params[1];
-            int rw = (int)params[2]; int rh = (int)params[3];
-            int src_w = rw;
-            int src_x_offset = 0;
-            int src_y_offset = 0;
-
-            if (rx < 0) { src_x_offset = -rx; rw += rx; rx = 0; }
-            if (ry < 0) { src_y_offset = -ry; rh += ry; ry = 0; }
-            if (rx + rw > win->w) rw = win->w - rx;
-            if (ry + rh > (win->h - 20)) rh = (win->h - 20) - ry;
-
-            if (rw > 0 && rh > 0) {
-                for (int y = 0; y < rh; y++) {
-                    uint32_t *dest = &win->pixels[(ry + y) * win->w + rx];
-                    uint32_t *src = &image_data[(src_y_offset + y) * src_w + src_x_offset];
-                    for (int x = 0; x < rw; x++) {
-                        uint32_t s = src[x];
-                        uint8_t alpha = (s >> 24) & 0xFF;
-                        if (alpha == 0xFF) {
-                            dest[x] = s;
-                        } else if (alpha > 0) {
-                            uint32_t d = dest[x];
-                            uint32_t rb = ((s & 0xFF00FF) * alpha + (d & 0xFF00FF) * (255 - alpha)) >> 8;
-                            uint32_t g = ((s & 0x00FF00) * alpha + (d & 0x00FF00) * (255 - alpha)) >> 8;
-                            dest[x] = (rb & 0xFF00FF) | (g & 0x00FF00) | 0xFF000000;
-                        }
-                    }
-                }
-            }
-        }
-        
-        spinlock_release_irqrestore(&win->lock, rflags);
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_mark_dirty(const syscall_args_t *args) {
-    Window *win = (Window *)args->arg2;
-    uint64_t *u_params = (uint64_t *)args->arg3;
-    process_t *proc = process_get_current();
-
-    if (win && u_params && proc && proc->ui_window == win) {
-        uint64_t params[4];
-        for (int i = 0; i < 4; i++) params[i] = u_params[i];
-
-        // Dual-buffer commit: copy pixels to comp_pixels
-        if (win->pixels && win->comp_pixels) {
-            uint64_t win_rflags = spinlock_acquire_irqsave(&win->lock);
-            extern void mem_memcpy(void *dest, const void *src, size_t len);
-            mem_memcpy(win->comp_pixels, win->pixels, (size_t)win->w * (win->h - 20) * 4);
-            spinlock_release_irqrestore(&win->lock, win_rflags);
-        }
-
-        uint64_t rflags = wm_lock_acquire();
-        wm_mark_dirty(win->x + (int)params[0], win->y + (int)params[1], (int)params[2], (int)params[3]);
-        wm_lock_release(rflags);
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_get_event(const syscall_args_t *args) {
-    process_t *proc = process_get_current();
-    gui_event_t *ev_out = (gui_event_t *)args->arg3;
-    if (!ev_out) return 0;
-    if (proc->gui_event_head != proc->gui_event_tail) {
-        *ev_out = proc->gui_events[proc->gui_event_head];
-        proc->gui_event_head = (proc->gui_event_head + 1) % MAX_GUI_EVENTS;
-        return 1;
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_get_string_width(const syscall_args_t *args) {
-    process_t *proc = process_get_current();
-    const char *user_str = (const char *)args->arg2;
-    if (!user_str) return 0;
-    
-    char kernel_str[256];
-    int i = 0;
-    while (i < 255 && user_str[i]) {
-        kernel_str[i] = user_str[i];
-        i++;
-    }
-    kernel_str[i] = 0;
-    
-    ttf_font_t *font = (proc->ui_window && ((Window*)proc->ui_window)->font) ? (ttf_font_t*)((Window*)proc->ui_window)->font : graphics_get_current_ttf();
-    if (font) {
-        return (uint64_t)font_manager_get_string_width_scaled(font, kernel_str, font->pixel_height);
-    } else {
-        return (uint64_t)i * 8; // Fallback bitmap width
-    }
-}
-
-static uint64_t gui_cmd_get_font_height(const syscall_args_t *args) {
-    process_t *proc = process_get_current();
-    ttf_font_t *font = (proc->ui_window && ((Window*)proc->ui_window)->font) ? (ttf_font_t*)((Window*)proc->ui_window)->font : graphics_get_current_ttf();
-    if (font) {
-        return (uint64_t)font_manager_get_font_height_scaled(font, font->pixel_height);
-    }
-    return 10;
-}
-
-static uint64_t gui_cmd_get_string_width_scaled(const syscall_args_t *args) {
-    process_t *proc = process_get_current();
-    const char *user_str = (const char *)args->arg2;
-    uint32_t scale_bits = (uint32_t)args->arg3;
-    float scale = *(float*)&scale_bits;
-
-    if (!user_str) return 0;
-    
-    char kernel_str[256];
-    int i = 0;
-    while (i < 255 && user_str[i]) {
-        kernel_str[i] = user_str[i];
-        i++;
-    }
-    kernel_str[i] = 0;
-    
-    extern int graphics_get_string_width_scaled(const char *s, float scale);
-    ttf_font_t *font = (proc->ui_window && ((Window*)proc->ui_window)->font) ? (ttf_font_t*)((Window*)proc->ui_window)->font : graphics_get_current_ttf();
-    if (font) {
-        return (uint64_t)font_manager_get_string_width_scaled(font, kernel_str, scale);
-    } else {
-        return (uint64_t)i * 8; // Fallback
-    }
-}
-
-static uint64_t gui_cmd_get_font_height_scaled(const syscall_args_t *args) {
-    process_t *proc = process_get_current();
-    uint32_t scale_bits = (uint32_t)args->arg2;
-    float scale = *(float*)&scale_bits;
-    ttf_font_t *font = (proc->ui_window && ((Window*)proc->ui_window)->font) ? (ttf_font_t*)((Window*)proc->ui_window)->font : graphics_get_current_ttf();
-    if (font) {
-        return (uint64_t)font_manager_get_font_height_scaled(font, scale);
-    }
-    return 10;
-}
-
-static uint64_t gui_cmd_window_set_resizable(const syscall_args_t *args) {
-    Window *win = (Window *)args->arg2;
-    process_t *proc = process_get_current();
-    if (win && proc && proc->ui_window == win) {
-        uint64_t flags = spinlock_acquire_irqsave(&win->lock);
-        win->resizable = (args->arg3 != 0);
-        spinlock_release_irqrestore(&win->lock, flags);
-        
-        extern void serial_write(const char *str);
-        serial_write("[WM] Resizable: ");
-        serial_write(args->arg3 ? "true\n" : "false\n");
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_window_set_title(const syscall_args_t *args) {
-    Window *win = (Window *)args->arg2;
-    const char *user_title = (const char *)args->arg3;
-    process_t *proc = process_get_current();
-
-    if (win && user_title && proc && proc->ui_window == win) {
-        int title_len = 0;
-        while (user_title[title_len] && title_len < 255) title_len++;
-        
-        char *kernel_title = kmalloc(title_len + 1);
-        if (kernel_title) {
-            for (int i = 0; i < title_len; i++) {
-                kernel_title[i] = user_title[i];
-            }
-            kernel_title[title_len] = '\0';
-            
-            uint64_t flags = spinlock_acquire_irqsave(&win->lock);
-            char *old_title = win->title;
-            win->title = kernel_title;
-            spinlock_release_irqrestore(&win->lock, flags);
-
-            if (old_title && old_title != (char*)"Unknown") {
-                kfree(old_title);
-            }
-            
-            wm_mark_dirty(win->x, win->y - 20, win->w, 20); // Mark title bar dirty
-            wm_refresh();
-        }
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_set_font(const syscall_args_t *args) {
-    Window *win = (Window *)args->arg2;
-    const char *user_path = (const char *)args->arg3;
-    if (win && user_path) {
-        char kernel_path[256];
-        int i = 0;
-        while (i < 255 && user_path[i]) {
-            kernel_path[i] = user_path[i];
-            i++;
-        }
-        kernel_path[i] = 0;
-        
-        ttf_font_t *new_font = font_manager_load(kernel_path, 15.0f);
-        if (new_font) {
-            win->font = new_font;
-        }
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_get_screen_size(const syscall_args_t *args) {
-    uint64_t *out_w = (uint64_t *)args->arg2;
-    uint64_t *out_h = (uint64_t *)args->arg3;
-    if (out_w && out_h) {
-        extern int get_screen_width(void);
-        extern int get_screen_height(void);
-        *out_w = (uint64_t)get_screen_width();
-        *out_h = (uint64_t)get_screen_height();
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_get_screenbuffer(const syscall_args_t *args) {
-    uint32_t *dest = (uint32_t *)args->arg2;
-    if (dest) {
-        extern void graphics_copy_screenbuffer(uint32_t *dest);
-        graphics_copy_screenbuffer(dest);
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_show_notification(const syscall_args_t *args) {
-    const char *user_msg = (const char *)args->arg2;
-    if (user_msg) {
-        char kernel_msg[256];
-        int i = 0;
-        while (i < 255 && user_msg[i]) {
-            kernel_msg[i] = user_msg[i];
-            i++;
-        }
-        kernel_msg[i] = 0;
-        extern void wm_show_notification(const char *msg);
-        wm_show_notification(kernel_msg);
-    }
-    return 0;
-}
-
-static uint64_t gui_cmd_get_datetime(const syscall_args_t *args) {
-    uint64_t *out_arr = (uint64_t *)args->arg2;
-    if (out_arr) {
-        extern void rtc_get_datetime(int *year, int *month, int *day, int *hour, int *minute, int *second);
-        int y, m, d, h, min, s;
-        rtc_get_datetime(&y, &m, &d, &h, &min, &s);
-        out_arr[0] = y;
-        out_arr[1] = m;
-        out_arr[2] = d;
-        out_arr[3] = h;
-        out_arr[4] = min;
-        out_arr[5] = s;
-    }
-    return 0;
-}
-
-#define GUI_CMD_TABLE_SIZE 54
-static const syscall_handler_fn gui_cmd_table[GUI_CMD_TABLE_SIZE] = {
-    [GUI_CMD_WINDOW_CREATE]          = gui_cmd_window_create,
-    [GUI_CMD_DRAW_RECT]              = gui_cmd_draw_rect,
-    [GUI_CMD_DRAW_STRING]            = gui_cmd_draw_string,
-    [GUI_CMD_MARK_DIRTY]             = gui_cmd_mark_dirty,
-    [GUI_CMD_GET_EVENT]              = gui_cmd_get_event,
-    [GUI_CMD_DRAW_ROUNDED_RECT_FILLED] = gui_cmd_draw_rounded_rect_filled,
-    [GUI_CMD_DRAW_IMAGE]             = gui_cmd_draw_image,
-    [GUI_CMD_GET_STRING_WIDTH]       = gui_cmd_get_string_width,
-    [GUI_CMD_GET_FONT_HEIGHT]        = gui_cmd_get_font_height,
-    [10]                             = gui_cmd_draw_string_bitmap,
-    [11]                             = gui_cmd_draw_string_scaled,
-    [12]                             = gui_cmd_get_string_width_scaled,
-    [13]                             = gui_cmd_get_font_height_scaled,
-    [GUI_CMD_WINDOW_SET_RESIZABLE]   = gui_cmd_window_set_resizable,
-    [15]                             = gui_cmd_window_set_title,
-    [16]                             = gui_cmd_set_font,
-    [18]                             = gui_cmd_draw_string_scaled_sloped,
-    [GUI_CMD_GET_SCREEN_SIZE]        = gui_cmd_get_screen_size,
-    [GUI_CMD_GET_SCREENBUFFER]       = gui_cmd_get_screenbuffer,
-    [GUI_CMD_SHOW_NOTIFICATION]      = gui_cmd_show_notification,
-    [GUI_CMD_GET_DATETIME]           = gui_cmd_get_datetime,
-};
 
 #define O_RDONLY 0x0000
 #define O_WRONLY 0x0001
@@ -1042,9 +156,14 @@ static uint64_t fs_cmd_open(const syscall_args_t *args) {
     const char *mode = (const char *)args->arg3;
     if (!path || !mode) return -1;
     
+    extern void serial_write(const char *str);
+    extern void serial_write_hex(uint64_t value);
+    extern void serial_write_num(uint64_t num);
+    
     // vfs_open now handles normalization internally with process_get_current()
     // but let's be explicit if we can.
     vfs_file_t *vf = vfs_open(path, mode);
+    
     if (!vf) return -1;
 
     process_fd_file_ref_t *ref = (process_fd_file_ref_t *)kmalloc(sizeof(process_fd_file_ref_t));
@@ -1106,11 +225,7 @@ static uint64_t fs_cmd_read(const syscall_args_t *args) {
         return n;
     }
 
-    if (proc->fd_kind[fd] == PROC_FD_KIND_TTY) {
-        if (proc->tty_id < 0) return (uint64_t)-1;
-        extern int tty_read_input(int tty_id, char *buf, size_t len);
-        return (uint64_t)tty_read_input(proc->tty_id, (char *)buf, (size_t)len);
-    }
+
 
     return -1;
 }
@@ -1152,11 +267,7 @@ static uint64_t fs_cmd_write(const syscall_args_t *args) {
         return n;
     }
 
-    if (proc->fd_kind[fd] == PROC_FD_KIND_TTY) {
-        if (proc->tty_id < 0) return (uint64_t)-1;
-        extern int tty_write_output(int tty_id, const char *buf, size_t len);
-        return (uint64_t)tty_write_output(proc->tty_id, (const char *)buf, (size_t)len);
-    }
+
 
     return -1;
 }
@@ -1302,7 +413,7 @@ static uint64_t fs_cmd_pipe(const syscall_args_t *args) {
 
     process_fd_pipe_t *pipe = (process_fd_pipe_t *)kmalloc(sizeof(process_fd_pipe_t));
     if (!pipe) return -1;
-    mem_memset(pipe, 0, sizeof(*pipe));
+    memset(pipe, 0, sizeof(*pipe));
     pipe->readers = 1;
     pipe->writers = 1;
     wait_queue_init(&pipe->read_queue);
@@ -1472,32 +583,22 @@ static uint64_t fs_cmd_mount_info(const syscall_args_t *args) {
     return 0;
 }
 
-// --- Poll/Select Support ---
-struct pollfd {
-    int fd;
-    short events;
-    short revents;
-};
-
-#define MAX_POLL_ENTRIES 32
-
-typedef struct {
-    wait_queue_head_t *h;
-    wait_queue_entry_t entry;
-} poll_entry_t;
-
-typedef struct {
-    poll_table_t pt;
-    poll_entry_t entries[MAX_POLL_ENTRIES];
-    int count;
-} poll_wtable_t;
+void poll_cleanup(process_t *proc) {
+    if (!proc) return;
+    poll_wtable_t *wt = &proc->poll_table;
+    for (int i = 0; i < wt->count; i++) {
+        wait_queue_remove(wt->entries[i].h, &wt->entries[i].entry);
+    }
+    wt->count = 0;
+}
 
 static void poll_qproc(wait_queue_head_t *h, poll_table_t *pt) {
-    poll_wtable_t *wt = (poll_wtable_t *)pt;
+    process_t *proc = process_get_current();
+    poll_wtable_t *wt = &proc->poll_table;
     if (wt->count < MAX_POLL_ENTRIES) {
         poll_entry_t *pe = &wt->entries[wt->count++];
         pe->h = h;
-        pe->entry.proc = process_get_current();
+        pe->entry.proc = proc;
         pe->entry.next = NULL;
         wait_queue_add(h, &pe->entry);
     }
@@ -1511,9 +612,10 @@ static uint64_t fs_cmd_poll(const syscall_args_t *args) {
     process_t *proc = process_get_current();
     if (!proc || !fds || nfds <= 0 || nfds > 128) return -1;
 
-    poll_wtable_t wt;
-    wt.pt.qproc = poll_qproc;
-    wt.count = 0;
+    // Initialize/reset poll table in process structure
+    proc->poll_table.pt.qproc = poll_qproc;
+    proc->poll_table.count = 0;
+    poll_table_t *pt = &proc->poll_table.pt;
 
     int ready = 0;
     for (int i = 0; i < nfds; i++) {
@@ -1529,21 +631,21 @@ static uint64_t fs_cmd_poll(const syscall_args_t *args) {
         int mask = 0;
         if (proc->fd_kind[fd] == PROC_FD_KIND_FILE) {
             process_fd_file_ref_t *ref = (process_fd_file_ref_t *)proc->fds[fd];
-            mask = vfs_poll(ref->file, &wt.pt);
+            mask = vfs_poll(ref->file, pt);
         } else if (proc->fd_kind[fd] == PROC_FD_KIND_PIPE_READ || proc->fd_kind[fd] == PROC_FD_KIND_PIPE_WRITE) {
             process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[fd];
             if (proc->fd_kind[fd] == PROC_FD_KIND_PIPE_READ) {
-                if (wt.pt.qproc) wt.pt.qproc(&pipe->read_queue, &wt.pt);
+                if (pt->qproc) pt->qproc(&pipe->read_queue, pt);
                 if (pipe->count > 0) mask |= POLLIN;
                 if (pipe->writers == 0) mask |= POLLHUP;
             } else {
-                if (wt.pt.qproc) wt.pt.qproc(&pipe->write_queue, &wt.pt);
+                if (pt->qproc) pt->qproc(&pipe->write_queue, pt);
                 if (pipe->count < sizeof(pipe->data)) mask |= POLLOUT;
                 if (pipe->readers == 0) mask |= POLLERR;
             }
         } else if (proc->fd_kind[fd] == PROC_FD_KIND_TTY) {
             extern int tty_poll(int tty_id, struct poll_table *pt);
-            mask = tty_poll(proc->tty_id, &wt.pt);
+            mask = tty_poll(proc->tty_id, pt);
         }
 
         fds[i].revents = mask & fds[i].events;
@@ -1551,17 +653,15 @@ static uint64_t fs_cmd_poll(const syscall_args_t *args) {
     }
 
     if (ready > 0 || timeout == 0) {
-        for (int i = 0; i < wt.count; i++) {
-            wait_queue_remove(wt.entries[i].h, &wt.entries[i].entry);
-        }
+        poll_cleanup(proc);
         return (uint64_t)ready;
     }
 
     if (timeout > 0) {
-        extern uint32_t wm_get_ticks(void);
+        extern uint32_t get_ticks(void);
         uint32_t ticks = timeout / 16;
         if (ticks == 0) ticks = 1;
-        proc->sleep_until = wm_get_ticks() + ticks;
+        proc->sleep_until = get_ticks() + ticks;
     }
 
     proc->state = PROC_STATE_BLOCKED;
@@ -1574,7 +674,27 @@ static uint64_t fs_cmd_select(const syscall_args_t *args) {
     return 0;
 }
 
-#define FS_CMD_TABLE_SIZE 24
+static uint64_t fs_cmd_ioctl(const syscall_args_t *args) {
+    int fd = (int)args->arg2;
+    uint64_t request = args->arg3;
+    void *arg = (void *)args->arg4;
+    
+    process_t *proc = process_get_current();
+    if (fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd]) return -1;
+    
+    if (proc->fd_kind[fd] == PROC_FD_KIND_FILE) {
+        process_fd_file_ref_t *ref = (process_fd_file_ref_t *)proc->fds[fd];
+        extern int vfs_ioctl(vfs_file_t *file, uint64_t request, void *arg);
+        return (uint64_t)vfs_ioctl(ref->file, request, arg);
+    } else if (proc->fd_kind[fd] == PROC_FD_KIND_TTY) {
+        extern int tty_ioctl(int id, uint64_t request, void *arg);
+        return (uint64_t)tty_ioctl(proc->tty_id, request, arg);
+    }
+    
+    return -1;
+}
+
+#define FS_CMD_TABLE_SIZE 25
 static const syscall_handler_fn fs_cmd_table[FS_CMD_TABLE_SIZE] = {
     [FS_CMD_OPEN]        = fs_cmd_open,      // 1
     [FS_CMD_READ]        = fs_cmd_read,      // 2
@@ -1599,6 +719,7 @@ static const syscall_handler_fn fs_cmd_table[FS_CMD_TABLE_SIZE] = {
     [FS_CMD_MOUNT_INFO]  = fs_cmd_mount_info,  // 21
     [FS_CMD_POLL]        = fs_cmd_poll,        // 22
     [FS_CMD_SELECT]      = fs_cmd_select,      // 23
+    [FS_CMD_IOCTL]       = fs_cmd_ioctl,       // 24
 };
 
 static uint64_t sys_cmd_set_bg_color(const syscall_args_t *args) {
@@ -1619,8 +740,6 @@ static uint64_t sys_cmd_set_bg_pattern(const syscall_args_t *args) {
         }
         graphics_set_bg_pattern(global_bg_pattern);
     }
-    extern void wm_refresh(void);
-    wm_refresh();
     return 0;
 }
 
@@ -1630,29 +749,17 @@ static uint64_t sys_cmd_set_wallpaper(const syscall_args_t *args) {
 }
 
 static uint64_t sys_cmd_set_desktop_prop(const syscall_args_t *args) {
-    int prop = (int)args->arg2;
-    int val = (int)args->arg3;
-    extern _Bool desktop_snap_to_grid;
-    extern _Bool desktop_auto_align;
-    extern int desktop_max_rows_per_col;
-    extern int desktop_max_cols;
-    if (prop == 1) desktop_snap_to_grid = val;
-    if (prop == 2) desktop_auto_align = val;
-    if (prop == 3) desktop_max_rows_per_col = val;
-    if (prop == 4) desktop_max_cols = val;
-    extern void wm_refresh_desktop(void);
-    wm_refresh_desktop();
+    (void)args;
     return 0;
 }
 
 static uint64_t sys_cmd_set_mouse_speed(const syscall_args_t *args) {
-    extern int mouse_speed;
-    mouse_speed = (int)args->arg2;
+    (void)args;
     return 0;
 }
 
 static uint64_t sys_cmd_set_mouse_cursor_scale(const syscall_args_t *args) {
-    wm_set_cursor_scale_tenths((int)args->arg2);
+    (void)args;
     return 0;
 }
 
@@ -1663,27 +770,18 @@ static uint64_t sys_cmd_network_init(const syscall_args_t *args) {
 }
 
 static uint64_t sys_cmd_get_desktop_prop(const syscall_args_t *args) {
-    int prop = (int)args->arg2;
-    extern _Bool desktop_snap_to_grid;
-    extern _Bool desktop_auto_align;
-    extern int desktop_max_rows_per_col;
-    extern int desktop_max_cols;
-    if (prop == 1) return desktop_snap_to_grid;
-    if (prop == 2) return desktop_auto_align;
-    if (prop == 3) return desktop_max_rows_per_col;
-    if (prop == 4) return desktop_max_cols;
+    (void)args;
     return 0;
 }
 
 static uint64_t sys_cmd_get_mouse_speed(const syscall_args_t *args) {
     (void)args;
-    extern int mouse_speed;
-    return mouse_speed;
+    return 10; // Default speed
 }
 
 static uint64_t sys_cmd_get_mouse_cursor_scale(const syscall_args_t *args) {
     (void)args;
-    return (uint64_t)wm_get_cursor_scale_tenths();
+    return 10; // Default 1.0x
 }
 
 static uint64_t sys_cmd_get_wallpaper_thumb(const syscall_args_t *args) {
@@ -1693,6 +791,11 @@ static uint64_t sys_cmd_get_wallpaper_thumb(const syscall_args_t *args) {
 
 static uint64_t sys_cmd_clear_screen(const syscall_args_t *args) {
     (void)args;
+    process_t *proc = process_get_current();
+    if (proc && proc->is_terminal_proc && proc->tty_id >= 0) {
+        tty_write(proc->tty_id, "\x1b[H\x1b[2J", 7);
+        return 0;
+    }
     extern void cmd_screen_clear(void);
     cmd_screen_clear();
     return 0;
@@ -1737,8 +840,8 @@ static uint64_t sys_cmd_get_mem_info(const syscall_args_t *args) {
 
 static uint64_t sys_cmd_get_ticks(const syscall_args_t *args) {
     (void)args;
-    extern uint32_t wm_get_ticks(void);
-    return (uint64_t)wm_get_ticks();
+    extern uint32_t get_ticks(void);
+    return (uint64_t)get_ticks();
 }
 
 static uint64_t sys_cmd_pci_list(const syscall_args_t *args) {
@@ -1872,7 +975,7 @@ static uint64_t sys_cmd_set_text_color(const syscall_args_t *args) {
         for (int i = 0; num[i] && pos < (int)sizeof(seq) - 1; i++) seq[pos++] = num[i];
         seq[pos++] = 'm';
 
-        tty_write_output(proc->tty_id, seq, (size_t)pos);
+        tty_write(proc->tty_id, seq, (size_t)pos);
         return 0;
     }
     cmd_set_current_color(color);
@@ -1897,8 +1000,7 @@ static uint64_t sys_cmd_set_wallpaper_path(const syscall_args_t *args) {
     }
     kernel_path[i] = 0;
     
-    extern void wallpaper_request_set_from_file(const char *path);
-    wallpaper_request_set_from_file(kernel_path);
+    (void)kernel_path;
     return 0;
 }
 
@@ -1996,7 +1098,6 @@ static uint64_t sys_cmd_set_resolution(const syscall_args_t *args) {
     
     extern bool vga_set_mode(uint16_t width, uint16_t height, uint16_t bpp, void **out_framebuffer);
     extern void graphics_update_resolution(int width, int height, int bpp, void* fb_addr, int color_mode);
-    extern void wm_refresh(void);
     extern void vga_set_palette_grayscale(void);
     extern void vga_set_palette_standard(void);
     
@@ -2008,8 +1109,8 @@ static uint64_t sys_cmd_set_resolution(const syscall_args_t *args) {
             vga_set_palette_standard();
         }
         graphics_update_resolution(req_w, req_h, req_bpp, new_fb, req_color_mode);
-        wm_refresh();
         return 0;
+
     }
     return -1;
 }
@@ -2020,11 +1121,10 @@ static uint64_t sys_cmd_network_get_nic_name(const syscall_args_t *args) {
     char name_buf[64];
     extern int network_get_nic_name(char *name_out);
     if (network_get_nic_name(name_buf) == 0) {
-        extern void mem_memcpy(void *dest, const void *src, size_t len);
         size_t len = 0;
         while (name_buf[len] && len < 63) len++;
         name_buf[len] = 0;
-        mem_memcpy(user_buf, name_buf, len + 1);
+        memcpy(user_buf, name_buf, len + 1);
         return 0;
     }
     return -1;
@@ -2066,6 +1166,13 @@ static uint64_t sys_cmd_parallel_run(const syscall_args_t *args) {
 static uint64_t sys_cmd_tty_create(const syscall_args_t *args) {
     (void)args;
     return tty_create();
+}
+
+static uint64_t sys_cmd_tty_get_id(const syscall_args_t *args) {
+    (void)args;
+    process_t *proc = process_get_current();
+    if (!proc) return (uint64_t)-1;
+    return (uint64_t)proc->tty_id;
 }
 
 static uint64_t sys_cmd_tty_read_out(const syscall_args_t *args) {
@@ -2416,7 +1523,6 @@ static uint64_t sys_cmd_disk_mount(const syscall_args_t *args) {
     void *vol = fat32_mount_volume(d);
     if (!vol) return (uint64_t)-1;
     if (!vfs_mount(mountpoint, devname, "fat32", fat32_get_realfs_ops(), vol)) return (uint64_t)-1;
-    wm_notify_fs_change();
     return 0;
 }
 
@@ -2620,6 +1726,7 @@ static const syscall_handler_fn sys_cmd_table[SYS_CMD_TABLE_SIZE] = {
     [SYSTEM_CMD_SIGPENDING]          = sys_cmd_sigpending,
     [SYSTEM_CMD_GET_ELF_METADATA]    = sys_cmd_get_elf_metadata,
     [SYSTEM_CMD_GET_ELF_PRIMARY_IMAGE] = sys_cmd_get_elf_primary_image,
+    [SYSTEM_CMD_TTY_GET_ID]          = sys_cmd_tty_get_id,
     [SYSTEM_CMD_DISK_GET_COUNT]      = sys_cmd_disk_get_count,
     [SYSTEM_CMD_DISK_GET_INFO]       = sys_cmd_disk_get_info,
     [SYSTEM_CMD_DISK_WRITE_GPT]      = sys_cmd_disk_write_gpt,
@@ -2660,14 +1767,6 @@ static uint64_t handle_sys_write(const syscall_args_t *args) {
         return len;
     }
     return len;
-}
-
-static uint64_t handle_sys_gui(const syscall_args_t *args) {
-    int cmd = (int)args->arg1;
-    if (cmd >= 0 && cmd < GUI_CMD_TABLE_SIZE && gui_cmd_table[cmd]) {
-        return gui_cmd_table[cmd](args);
-    }
-    return 0;
 }
 
 static uint64_t handle_sys_fs(const syscall_args_t *args) {
@@ -2711,8 +1810,7 @@ static uint64_t handle_sys_sbrk(const syscall_args_t *args) {
             void *phys_block = kmalloc_aligned(total_size, 4096);
             if (!phys_block) return (uint64_t)-1; // Out of memory
             
-            extern void mem_memset(void *dest, int val, size_t len);
-            mem_memset(phys_block, 0, total_size);
+            memset(phys_block, 0, total_size);
             
             uint64_t phys_addr = (uint64_t)phys_block;
             for (uint64_t page = start_page; page < end_page; page += 4096) {
@@ -2735,7 +1833,7 @@ static uint64_t handle_sys_kill(const syscall_args_t *args) {
 #define SYSCALL_TABLE_SIZE 11
 static const syscall_handler_fn syscall_table[SYSCALL_TABLE_SIZE] = {
     [SYS_WRITE] = handle_sys_write,          
-    [SYS_GUI]   = handle_sys_gui,            
+    [SYS_GUI]   = NULL,            
     [SYS_FS]    = handle_sys_fs,             
     [5]         = handle_sys_system,    
     [8]         = handle_debug_serial_write, 
@@ -2842,10 +1940,10 @@ uint64_t syscall_handler_c(registers_t *regs) {
     if (syscall_num == SYS_SYSTEM && regs->rdi == SYSTEM_CMD_SLEEP) {
         uint32_t ms = (uint32_t)regs->rsi;
         process_t *proc = process_get_current();
-        extern uint32_t wm_get_ticks(void);
+        extern uint32_t get_ticks(void);
         uint32_t ticks = ms / 16;
         if (ticks == 0 && ms > 0) ticks = 1;
-        proc->sleep_until = wm_get_ticks() + ticks;
+        proc->sleep_until = get_ticks() + ticks;
         regs->rax = 0;
         return process_schedule((uint64_t)regs);
     }

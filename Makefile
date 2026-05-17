@@ -28,7 +28,9 @@ define PRINT_STEP
 	@printf "$(BLUE)============================================================$(RESET)\n"
 endef
 
-DOCK_COLLOID_ICONS = $(shell sed -n 's/^[[:space:]]*{"\([^"]*\.png\)",[[:space:]]*DOCK_ICON_UNTRIED.*/\1/p' $(SRC_DIR)/wm/wm.c)
+# DOCK_COLLOID_ICONS = (removed)
+DOCK_COLLOID_ICONS = 
+
 USERLAND_COLLOID_ICONS = $(shell { \
 	find $(SRC_DIR)/userland -type f -name '*.c' ! -path '*/third_party/*' -exec grep -hoE '"[^"]+\.png"' {} + 2>/dev/null; \
 	find $(SRC_DIR)/userland -type f -name '*.h' ! -path '*/third_party/*' ! -name 'stb_image.h' -exec grep -hoE '"[^"]+\.png"' {} + 2>/dev/null; \
@@ -236,8 +238,8 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
 	@if [ -f $(SRC_DIR)/library/bsh/boot.bsh ]; then printf "  -> boot.bsh\n"; cp $(SRC_DIR)/library/bsh/boot.bsh $(BUILD_DIR)/initrd/Library/bsh/; fi
 	@if [ -f $(SRC_DIR)/library/conf/sysfetch.cfg ]; then printf "  -> sysfetch.cfg\n"; cp $(SRC_DIR)/library/conf/sysfetch.cfg $(BUILD_DIR)/initrd/Library/conf/; fi
 
-	@printf "$(YELLOW)[COPY]$(RESET) DOOM assets...\n"
-	@if [ -f $(SRC_DIR)/userland/games/doom/doom1.wad ]; then printf "  -> doom1.wad\n"; cp $(SRC_DIR)/userland/games/doom/doom1.wad $(BUILD_DIR)/initrd/Library/DOOM/; fi
+	@printf "$(YELLOW)[COPY]$(RESET) Skipped DOOM assets (deleted)\n"
+
 
 	@printf "$(YELLOW)[COPY]$(RESET) ASCII art...\n"
 	@if [ -f $(SRC_DIR)/library/art/boredos.txt ]; then printf "  -> boredos.txt\n"; cp $(SRC_DIR)/library/art/boredos.txt $(BUILD_DIR)/initrd/Library/art/; fi

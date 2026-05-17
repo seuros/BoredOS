@@ -13,7 +13,8 @@
 #include "syscall.h"
 #include "process.h"
 #include "ps2.h"
-#include "wm.h"
+#include "tty.h"
+
 #include "io.h"
 #include "fat32.h"
 #include "tar.h"
@@ -22,13 +23,13 @@
 #include "core/kutils.h"
 #include "memory_manager.h"
 #include "platform.h"
-#include "wallpaper.h"
 #include "smp.h"
 #include "work_queue.h"
 #include "lapic.h"
 #include "panic.h"
 #include "fs/sysfs.h"
 #include "fs/procfs.h"
+#include "dev/disk.h"
 #include "fs/bootfs.h"
 #include "sys/kernel_subsystem.h"
 #include "sys/module_manager.h"
@@ -384,6 +385,9 @@ void kmain(void) {
     fat32_init();
     log_ok("FAT32 ready");
 
+    disk_manager_init();
+    disk_manager_scan();
+
     sysfs_init_subsystems();
     vfs_mount("/sys", "sysfs", "sysfs", sysfs_get_ops(), NULL);
     vfs_mount("/proc", "procfs", "procfs", procfs_get_ops(), NULL);
@@ -414,8 +418,9 @@ void kmain(void) {
         boot_parse_cmdline(NULL, LIMINE_MEDIA_TYPE_GENERIC);
     }
     
-    extern uint32_t wm_get_ticks(void);
-    g_bootfs_state.boot_time_ms = wm_get_ticks();
+    extern uint32_t kernel_ticks;
+    g_bootfs_state.boot_time_ms = kernel_ticks;
+
 
     if (module_request.response != NULL) {
         g_bootfs_state.num_modules = module_request.response->module_count;
@@ -495,23 +500,11 @@ void kmain(void) {
     serial_write_hex(current_rsp);
     serial_write("\n");
 
-    serial_write("[DBG] before graphics_init_fonts\n");
     graphics_init_fonts();
-    serial_write("[DBG] after graphics_init_fonts\n");
-
-    serial_write("[DBG] before ps2_init\n");
     ps2_init();
-    serial_write("[DBG] after ps2_init\n");
     asm("sti");  // Enable interrupts 
-
-    serial_write("[DBG] before keymap_init\n");
     keymap_init();
-    serial_write("[DBG] after keymap_init\n");
-    serial_write("[INIT] Keymap initialized\n");
-
-    serial_write("[DBG] before lapic_init\n");
     lapic_init();
-    serial_write("[DBG] after lapic_init\n");
 
     if (smp_request.response != NULL) {
         uint32_t online = smp_init(smp_request.response);
@@ -522,12 +515,25 @@ void kmain(void) {
     }
 
 
-    wm_init();
-
-    asm volatile("sti");
-    
     extern void bootfs_refresh_from_disk(void);
     bootfs_refresh_from_disk();
 
-    wm_run_loop();
+    tty_init();
+    kconsole_set_active(false);
+
+    // Spawn shells for all 10 TTYs
+    for (int i = 0; i < TTY_COUNT; i++) {
+        char args[32];
+        itoa(i + 1, args);
+        process_create_elf("/bin/bsh.elf", args, true, i);
+    }
+
+    asm volatile("sti");
+
+    // Main blitter loop
+    while(1) {
+        tty_blit_active();
+        k_sleep(16); 
+    }
+
 }

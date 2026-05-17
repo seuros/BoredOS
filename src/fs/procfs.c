@@ -80,8 +80,8 @@ int procfs_read(void *fs_private, void *handle, void *buf, int size) {
             strcpy(out + strlen(out), info.build_time);
             strcpy(out + strlen(out), "\n");
         } else if (strcmp(h->type, "uptime") == 0) {
-            extern uint32_t wm_get_ticks(void);
-            uint32_t ticks = wm_get_ticks();
+            extern uint32_t get_ticks(void);
+            uint32_t ticks = get_ticks();
             itoa(ticks / 60, out);
             strcpy(out + strlen(out), " seconds\nRaw_Ticks:");
             char t_s[16]; itoa(ticks, t_s);

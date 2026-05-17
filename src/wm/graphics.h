@@ -45,7 +45,26 @@ int get_screen_width(void);
 int get_screen_height(void);
 uint64_t graphics_get_fb_addr(void);
 int graphics_get_fb_bpp(void);
+uint64_t graphics_get_fb_pitch(void);
 void graphics_update_resolution(int width, int height, int bpp, void* fb_addr, int color_mode);
+
+// Framebuffer info structure (for userspace and VFS)
+typedef struct {
+    void *address;
+    uint32_t width;
+    uint32_t height;
+    uint32_t pitch;
+    uint16_t bpp;
+    uint8_t red_mask_size;
+    uint8_t red_mask_shift;
+    uint8_t green_mask_size;
+    uint8_t green_mask_shift;
+    uint8_t blue_mask_size;
+    uint8_t blue_mask_shift;
+} framebuffer_info_t;
+
+struct limine_framebuffer* graphics_get_fb_info(void);
+framebuffer_info_t graphics_get_fb_params(void);
 
 // Dirty rectangle management
 void graphics_mark_dirty(int x, int y, int w, int h);

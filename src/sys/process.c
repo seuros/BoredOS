@@ -9,17 +9,18 @@
 #include "platform.h"
 #include "memory_manager.h"
 #include "elf.h"
-#include "wm.h"
 #include "vfs.h"
 #include "spinlock.h"
 #include "smp.h"
 #include "lapic.h"
+#include "../core/kutils.h"
+
 
 extern void cmd_write(const char *str);
 extern void serial_write(const char *str);
 extern void serial_write_num(uint32_t n);
 
-#define MAX_PROCESSES 16
+#define MAX_PROCESSES 64
 #define MAX_CPUS_SCHED 32
 process_t processes[MAX_PROCESSES] __attribute__((aligned(16)));
 static process_t* current_process[MAX_CPUS_SCHED] = {0}; // Per-CPU
@@ -31,6 +32,7 @@ static uint32_t next_cpu_assign = 1;
 
 static void process_cleanup_inner(process_t *proc);
 static void process_init_signal_state(process_t *proc);
+extern void poll_cleanup(process_t *proc);
 
 static void process_release_slot(process_t *p) {
     p->pid = 0xFFFFFFFF;
@@ -41,7 +43,6 @@ static void process_release_slot(process_t *p) {
     p->exit_status = 0;
     p->sleep_until = 0;
     p->state = PROC_STATE_RUNNING;
-    p->ui_window = NULL;
     p->is_terminal_proc = false;
     p->tty_id = -1;
     p->kill_pending = false;
@@ -57,6 +58,7 @@ static void process_release_slot(process_t *p) {
         p->fd_kind[i] = PROC_FD_KIND_NONE;
         p->fd_flags[i] = 0;
     }
+    memset(&p->poll_table, 0, sizeof(p->poll_table));
     process_init_signal_state(p);
 }
 
@@ -131,15 +133,15 @@ void process_init(void) {
     kernel_proc->exit_status = 0;
     process_init_signal_state(kernel_proc);
     
-    extern void mem_memcpy(void *dest, const void *src, size_t len);
-    mem_memcpy(kernel_proc->name, "kernel", 7);
+    memcpy(kernel_proc->name, "kernel", 7);
     kernel_proc->ticks = 0;
     kernel_proc->used_memory = 32768; // Kernel stack
 
     kernel_proc->next = kernel_proc; // Circular linked list
     kernel_proc->cpu_affinity = 0;   // Kernel always on BSP
-    mem_memset(kernel_proc->cwd, 0, 1024);
+    memset(kernel_proc->cwd, 0, 1024);
     kernel_proc->cwd[0] = '/';
+    memset(&kernel_proc->poll_table, 0, sizeof(kernel_proc->poll_table));
     current_process[0] = kernel_proc;
 }
 
@@ -173,11 +175,10 @@ process_t* process_create(void (*entry_point)(void), bool is_user) {
     process_init_signal_state(new_proc);
     
     if (parent) {
-        extern void mem_memcpy(void *dest, const void *src, size_t len);
-        mem_memcpy(new_proc->cwd, parent->cwd, 1024);
+        memcpy(new_proc->cwd, parent->cwd, 1024);
         new_proc->tty_id = parent->tty_id;
     } else {
-        mem_memset(new_proc->cwd, 0, 1024);
+        memset(new_proc->cwd, 0, 1024);
         new_proc->cwd[0] = '/';
     }
     
@@ -330,20 +331,35 @@ process_t* process_create_elf(const char* filepath, const char* args_str, bool t
         }
     }
 
-    // Always set up TTY FDs if a TTY is provided and they aren't already set
+    // Always set up TTY FDs if a TTY is provided
     if (tty_id >= 0) {
-        for (int i = 0; i < 3; i++) {
-            if (!new_proc->fds[i]) {
-                new_proc->fds[i] = (void*)(uint64_t)1;
-                new_proc->fd_kind[i] = PROC_FD_KIND_TTY;
-                new_proc->fd_flags[i] = (i == 0) ? 0 : 1;
+        char tty_path[16];
+        extern void strcpy(char *dest, const char *src);
+        extern void itoa(int n, char *buf);
+        strcpy(tty_path, "/dev/tty");
+        itoa(tty_id + 1, tty_path + 8);
+        
+        vfs_file_t *f = vfs_open(tty_path, "rw");
+        if (f) {
+            process_fd_file_ref_t *ref = kmalloc(sizeof(process_fd_file_ref_t));
+            if (ref) {
+                ref->file = f;
+                ref->refs = 0;
+                for (int i = 0; i < 3; i++) {
+                    if (new_proc->fds[i]) {
+                        // Close inherited FD if any
+                        process_close_fd_inner(new_proc, i);
+                    }
+                    new_proc->fds[i] = ref;
+                    new_proc->fd_kind[i] = PROC_FD_KIND_FILE;
+                    new_proc->fd_flags[i] = (i == 0) ? 0 : 1;
+                    ref->refs++;
+                }
             }
         }
     }
 
-    new_proc->gui_event_head = 0;
-    new_proc->gui_event_tail = 0;
-    new_proc->ui_window = NULL;
+
     new_proc->heap_start = 0x20000000; // 512MB mark
     new_proc->heap_end = 0x20000000;
     new_proc->is_terminal_proc = terminal_proc;
@@ -354,13 +370,11 @@ process_t* process_create_elf(const char* filepath, const char* args_str, bool t
     process_init_signal_state(new_proc);
 
     if (parent) {
-        extern void mem_memcpy(void *dest, const void *src, size_t len);
-        mem_memcpy(new_proc->cwd, parent->cwd, 1024);
+        memcpy(new_proc->cwd, parent->cwd, 1024);
         new_proc->parent_pid = parent->pid;
         new_proc->pgid = parent->pgid;
     } else {
-        extern void mem_memset(void *dest, int val, size_t len);
-        mem_memset(new_proc->cwd, 0, 1024);
+        memset(new_proc->cwd, 0, 1024);
         new_proc->cwd[0] = '/';
         new_proc->parent_pid = 0;
         new_proc->pgid = new_proc->pid;
@@ -632,7 +646,6 @@ uint64_t process_schedule(uint64_t current_rsp) {
 
             cur->exited = true;
             cur->cpu_affinity = 0xFFFFFFFF;
-            cur->ui_window = NULL;
             cur->is_terminal_proc = false;
             cur->kill_pending = false;
 
@@ -669,8 +682,8 @@ uint64_t process_schedule(uint64_t current_rsp) {
     }
 
     // Switch to next ready process assigned to this CPU
-    extern uint32_t wm_get_ticks(void);
-    uint32_t now = wm_get_ticks();
+    extern uint32_t get_ticks(void);
+    uint32_t now = get_ticks();
     
     process_t *start = cur;
     process_t *next_proc = cur->next;
@@ -718,6 +731,9 @@ uint64_t process_schedule(uint64_t current_rsp) {
     // Switch page table
     paging_switch_directory(current_process[my_cpu]->pml4_phys);
     
+    // Clean up any stale poll entries
+    poll_cleanup(current_process[my_cpu]);
+    
     current_process[my_cpu]->ticks++;
     uint64_t next_rsp = current_process[my_cpu]->rsp;
 
@@ -752,12 +768,10 @@ void process_kill_by_tty(int tty_id) {
 static void process_cleanup_inner(process_t *proc) {
     if (!proc || proc->pid == 0xFFFFFFFF) return;
 
+    // 0. Cleanup wait queues
+    poll_cleanup(proc);
+
     // 1. Cleanup side effects
-    if (proc->ui_window) {
-        wm_remove_window((Window *)proc->ui_window);
-        proc->ui_window = NULL;
-    }
-    
     for (int i = 0; i < MAX_PROCESS_FDS; i++) {
         process_close_fd_inner(proc, i);
     }
@@ -918,7 +932,6 @@ uint64_t process_terminate_current(void) {
     
     // Mark slot as free
     to_delete->cpu_affinity = 0xFFFFFFFF;
-    to_delete->ui_window = NULL;
     to_delete->is_terminal_proc = false;
     to_delete->kill_pending = false;
 
@@ -1119,6 +1132,15 @@ int process_exec_replace_current(registers_t *regs, const char* filepath, const 
     proc->sleep_until = 0;
     process_init_signal_state(proc);
 
+    for (int i = 3; i < MAX_PROCESS_FDS; i++) {
+        if (proc->fds[i]) {
+            process_close_fd_inner(proc, i);
+        }
+        proc->fds[i] = NULL;
+        proc->fd_kind[i] = PROC_FD_KIND_NONE;
+        proc->fd_flags[i] = 0;
+    }
+
     int last_slash = -1;
     for (int i = 0; filepath[i]; i++) if (filepath[i] == '/') last_slash = i;
     const char *filename = (last_slash == -1) ? filepath : (filepath + last_slash + 1);
@@ -1157,37 +1179,4 @@ uint64_t sched_ipi_handler(registers_t *regs) {
     
     // Run the scheduler for this CPU
     return process_schedule((uint64_t)regs);
-}
-
-void process_push_gui_event(process_t *proc, gui_event_t *ev) {
-    if (!proc) return;
-
-    // Coalesce PAINT events: if a PAINT event is already in the queue, don't add another
-    if (ev->type == 1) { // GUI_EVENT_PAINT
-        int curr = proc->gui_event_head;
-        while (curr != proc->gui_event_tail) {
-            if (proc->gui_events[curr].type == 1) {
-                return; // Already has a paint event pending
-            }
-            curr = (curr + 1) % MAX_GUI_EVENTS;
-        }
-    }
-
-    int next_tail = (proc->gui_event_tail + 1) % MAX_GUI_EVENTS;
-    // Drop event if queue is full
-    if (next_tail == proc->gui_event_head) {
-        extern void serial_write(const char *str);
-        return;
-    }
-    proc->gui_events[proc->gui_event_tail] = *ev;
-    proc->gui_event_tail = next_tail;
-}
-
-process_t* process_get_by_ui_window(void *win) {
-    for (int i = 0; i < MAX_PROCESSES; i++) {
-        if (processes[i].pid != 0xFFFFFFFF && processes[i].ui_window == win) {
-            return &processes[i];
-        }
-    }
-    return NULL;
 }

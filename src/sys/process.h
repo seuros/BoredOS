@@ -7,9 +7,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
-#include "gui_ipc.h"
 
-#define MAX_GUI_EVENTS 32
 #define MAX_PROCESS_FDS 16
 #define MAX_SIGNALS 32
 
@@ -58,11 +56,6 @@ typedef struct process {
     bool is_user;
     int state;
     
-    gui_event_t gui_events[MAX_GUI_EVENTS];
-    int gui_event_head;
-    int gui_event_tail;
-    void *ui_window; 
-    
     uint64_t heap_start;
     uint64_t heap_end;
     
@@ -103,6 +96,8 @@ typedef struct process {
     // Tracking for ELF executable segments to allow full memory reclamation on exit.
     void *elf_segments[4];
     uint32_t elf_segment_count;
+
+    poll_wtable_t poll_table;
 } __attribute__((aligned(16))) process_t;
 
 // Loads the ELF executable at 'path' using fat32 into the pagemap given by user_pml4.
@@ -141,9 +136,6 @@ void process_kill_by_tty(int tty_id);
 
 // SMP: IPI handler for AP scheduling 
 uint64_t sched_ipi_handler(registers_t *regs);
-
-void process_push_gui_event(process_t *proc, gui_event_t *ev);
-process_t* process_get_by_ui_window(void* win);
 
 #endif
 

@@ -4,6 +4,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 #include <stddef.h>
+#include "core/kutils.h"
+
 
 extern float ksqrtf(float x);
 extern float kpowf(float b, float e);
@@ -26,8 +28,8 @@ extern float kfabsf(float x);
 #define STBTT_malloc(x,u)  kmalloc(x)
 #define STBTT_free(x,u)    kfree(x)
 
-#define STBTT_memcpy mem_memcpy
-#define STBTT_memset mem_memset
+#define STBTT_memcpy memcpy
+#define STBTT_memset memset
 
 typedef uint64_t STBTT_ptrsize;
 

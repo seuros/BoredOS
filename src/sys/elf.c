@@ -4,6 +4,8 @@
 #include "elf.h"
 #include "fat32.h"
 #include "memory_manager.h"
+#include "kutils.h"
+
 #include "paging.h"
 #include "platform.h"
 
@@ -89,7 +91,7 @@ uint64_t elf_load(const char *path, uint64_t user_pml4, size_t *out_load_size, s
             }
 
             // Zero out entire segment (BSS and padding) in one go
-            mem_memset(bulk_phys, 0, total_needed);
+            memset(bulk_phys, 0, total_needed);
 
             // Bulk read from disk for the entire filesz part
             if (p_filesz > 0) {

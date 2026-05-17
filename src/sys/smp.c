@@ -140,8 +140,7 @@ uint32_t smp_init(struct limine_smp_response *smp_resp) {
         total_cpus = 1;
         cpu_states = (cpu_state_t *)kmalloc_aligned(sizeof(cpu_state_t), 64);
         if (!cpu_states) return 1;
-        extern void mem_memset(void *, int, size_t);
-        mem_memset(cpu_states, 0, sizeof(cpu_state_t));
+        memset(cpu_states, 0, sizeof(cpu_state_t));
         cpu_states[0].cpu_id = 0;
         cpu_states[0].lapic_id = read_lapic_id();
         cpu_states[0].online = true;
@@ -164,8 +163,7 @@ uint32_t smp_init(struct limine_smp_response *smp_resp) {
         total_cpus = 1;
         return 1;
     }
-    extern void mem_memset(void *, int, size_t);
-    mem_memset(cpu_states, 0, total_cpus * sizeof(cpu_state_t));
+    memset(cpu_states, 0, total_cpus * sizeof(cpu_state_t));
 
     gdt_init_ap_tss(total_cpus);
 

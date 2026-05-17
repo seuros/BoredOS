@@ -365,6 +365,37 @@ __attribute__((weak)) ssize_t read(int fd, void *buf, size_t count) {
     return (ssize_t)n;
 }
 
+__attribute__((weak)) int ioctl(int fd, unsigned long request, ...) {
+    fd_handle_t *h;
+    va_list ap;
+    void *arg;
+    extern int sys_ioctl(int fd, unsigned long request, void *arg);
+
+    _b_fd_init();
+
+    h = _b_get_handle(fd);
+    if (!h) {
+        errno = EBADF;
+        return -1;
+    }
+
+    if (h->type != HANDLE_KERNEL_FD) {
+        errno = EINVAL; 
+        return -1;
+    }
+
+    va_start(ap, request);
+    arg = va_arg(ap, void*);
+    va_end(ap);
+
+    int ret = sys_ioctl(h->kernel_fd, request, arg);
+    if (ret < 0) {
+        errno = EIO;
+        return -1;
+    }
+    return ret;
+}
+
 __attribute__((weak)) ssize_t write(int fd, const void *buf, size_t count) {
     fd_handle_t *h;
     int n;

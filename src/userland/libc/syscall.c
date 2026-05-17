@@ -219,6 +219,10 @@ int sys_sigprocmask(int how, const unsigned long *set, unsigned long *oldset) {
     return (int)syscall4(SYS_SYSTEM, SYSTEM_CMD_SIGPROCMASK, (uint64_t)how, (uint64_t)set, (uint64_t)oldset);
 }
 
+int sys_ioctl(int fd, unsigned long request, void *arg) {
+    return (int)syscall4(SYS_FS, FS_CMD_IOCTL, (uint64_t)fd, (uint64_t)request, (uint64_t)arg);
+}
+
 int sys_sigpending(unsigned long *set) {
     return (int)syscall3(SYS_SYSTEM, SYSTEM_CMD_SIGPENDING, (uint64_t)set, 0);
 }

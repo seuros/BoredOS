@@ -10,6 +10,8 @@
 #include "limine.h"
 #include "platform.h"
 #include "spinlock.h"
+#include "../core/kutils.h"
+
 
 #define PAGE_SIZE  4096UL
 #define SLAB_PAGE_MAGIC     0x534C4142U
@@ -60,16 +62,6 @@ static size_t    slab_total_frees  = 0;
 extern void serial_write(const char *str);
 extern void serial_write_num(uint32_t n);
 
-void mem_memset(void *dest, int val, size_t len) {
-    uint8_t *p = (uint8_t *)dest;
-    while (len--) *p++ = (uint8_t)val;
-}
-
-void mem_memcpy(void *dest, const void *src, size_t len) {
-    uint8_t *d = (uint8_t *)dest;
-    const uint8_t *s = (const uint8_t *)src;
-    while (len--) *d++ = *s++;
-}
 
 static void mem_memmove(void *dest, const void *src, size_t len) {
     uint8_t       *d = (uint8_t *)dest;
@@ -162,7 +154,7 @@ restart:
 
         total_allocated += size;
         if (total_allocated > peak_allocated) peak_allocated = total_allocated;
-        mem_memset(ptr, 0, size);
+        memset(ptr, 0, size);
         return ptr;
     }
     return NULL;
@@ -204,7 +196,7 @@ static bool grow_block_list(void) {
     MemBlock *nl = (MemBlock *)_kmalloc_locked((size_t)new_cap * sizeof(MemBlock), 8);
     if (!nl) { growing = false; return false; }
 
-    mem_memcpy(nl, block_list, (size_t)block_count * sizeof(MemBlock));
+    memcpy(nl, block_list, (size_t)block_count * sizeof(MemBlock));
     
     MemBlock *old_ptr = block_list;
     bool old_on_heap  = on_heap;
@@ -385,7 +377,7 @@ static void *slab_alloc(int cls) {
     cache->total_allocs++;
     slab_total_allocs++;
 
-    mem_memset(obj, 0, slab_sizes[cls]);
+    memset(obj, 0, slab_sizes[cls]);
     return obj;
 }
 
@@ -410,14 +402,14 @@ static void slab_free(void *ptr) {
 void memory_manager_init_from_memmap(struct limine_memmap_response *memmap) {
     if (initialized || !memmap) return;
 
-    mem_memset(_bootstrap_blocks, 0, sizeof(_bootstrap_blocks));
+    memset(_bootstrap_blocks, 0, sizeof(_bootstrap_blocks));
     block_list      = _bootstrap_blocks;
     block_capacity  = BLOCK_LIST_INITIAL_CAPACITY;
     block_count     = 0;
     on_heap         = false;
     total_allocated = peak_allocated = allocation_counter = 0;
     memory_pool_size = 0;
-    mem_memset(slab_caches, 0, sizeof(slab_caches));
+    memset(slab_caches, 0, sizeof(slab_caches));
     slab_total_allocs = slab_total_frees = 0;
 
     for (uint64_t i = 0; i < memmap->entry_count; i++) {
@@ -478,7 +470,7 @@ void *kmalloc(size_t size) {
 void *kcalloc(size_t n, size_t size) {
     size_t total = n * size;
     void *ptr = kmalloc(total);
-    if (ptr) mem_memset(ptr, 0, total);
+    if (ptr) memset(ptr, 0, total);
     return ptr;
 }
 

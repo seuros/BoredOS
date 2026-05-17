@@ -7,6 +7,24 @@
 #include <stddef.h>
 #include "disk.h"
 #include "process.h"
+#include "tty.h"
+#include "../core/kutils.h"
+
+typedef struct {
+    void *address;
+    uint32_t width;
+    uint32_t height;
+    uint32_t pitch;
+    uint16_t bpp;
+    uint8_t red_mask_size;
+    uint8_t red_mask_shift;
+    uint8_t green_mask_size;
+    uint8_t green_mask_shift;
+    uint8_t blue_mask_size;
+    uint8_t blue_mask_shift;
+} vfs_framebuffer_info_t;
+extern vfs_framebuffer_info_t graphics_get_fb_params(void);
+
 
 
 static vfs_mount_t mounts[VFS_MAX_MOUNTS];
@@ -16,6 +34,7 @@ static spinlock_t vfs_lock = SPINLOCK_INIT;
 
 extern void serial_write(const char *str);
 extern void serial_write_num(uint64_t num);
+extern void serial_write_hex(uint64_t value);
 
 static int vfs_strlen(const char *s) {
     int n = 0;
@@ -169,6 +188,7 @@ static vfs_file_t* vfs_alloc_file(void) {
             open_files[i].mount = NULL;
             open_files[i].position = 0;
             open_files[i].is_device = false;
+            open_files[i].device_type = DEVICE_TYPE_BLOCK; // Initialize to safe default
             return &open_files[i];
         }
     }
@@ -182,6 +202,7 @@ static void vfs_free_file(vfs_file_t *f) {
         f->mount = NULL;
         f->position = 0;
         f->is_device = false;
+        f->device_type = DEVICE_TYPE_BLOCK;
     }
 }
 
@@ -298,7 +319,94 @@ vfs_file_t* vfs_open(const char *path, const char *mode) {
     // Fallback for block devices (/dev/sda etc)
     if (vfs_starts_with(normalized, "/dev/")) {
         const char *devname = normalized + 5;
+        
+        // Handle TTY devices: /dev/ttyX
+        if (vfs_starts_with(devname, "tty")) {
+            int id = atoi(devname + 3);
+            if (id >= 1 && id <= TTY_COUNT) {
+                vfs_file_t *vf = vfs_alloc_file();
+                if (vf) {
+                    vf->mount = &mounts[0];
+                    vf->fs_handle = (void*)(uintptr_t)(id - 1);
+                    vf->is_device = true;
+                    vf->device_type = DEVICE_TYPE_TTY;
+                    spinlock_release_irqrestore(&vfs_lock, flags);
+                    return vf;
+                }
+            }
+        }
+        
+        // Handle Keyboard devices: /dev/keyboard (active) or /dev/keyboardX
+        if (vfs_starts_with(devname, "keyboard")) {
+            int id = 0;
+            if (vfs_strcmp(devname, "keyboard") == 0) {
+                id = tty_get_active_id() + 1;
+            } else {
+                id = atoi(devname + 8);
+            }
+
+            if (id >= 1 && id <= TTY_COUNT) {
+                vfs_file_t *vf = vfs_alloc_file();
+                if (vf) {
+                    vf->mount = &mounts[0];
+                    vf->fs_handle = (void*)(uintptr_t)(id - 1);
+                    vf->is_device = true;
+                    vf->device_type = DEVICE_TYPE_KEYBOARD;
+                    spinlock_release_irqrestore(&vfs_lock, flags);
+                    return vf;
+                }
+            }
+        }
+
+        // Handle Mouse devices: /dev/mouse (active) or /dev/mouseX
+        if (vfs_starts_with(devname, "mouse")) {
+            int id = 0;
+            if (vfs_strcmp(devname, "mouse") == 0) {
+                id = tty_get_active_id() + 1;
+            } else {
+                id = atoi(devname + 5);
+            }
+
+            if (id >= 1 && id <= TTY_COUNT) {
+                vfs_file_t *vf = vfs_alloc_file();
+                if (vf) {
+                    vf->mount = &mounts[0];
+                    vf->fs_handle = (void*)(uintptr_t)(id - 1);
+                    vf->is_device = true;
+                    vf->device_type = DEVICE_TYPE_MOUSE;
+                    spinlock_release_irqrestore(&vfs_lock, flags);
+                    return vf;
+                }
+            }
+        }
+
+        // Handle Framebuffer devices: /dev/fb0 or /dev/fbX
+        if (vfs_starts_with(devname, "fb")) {
+            int id = 0;
+            if (vfs_strcmp(devname, "fb0") == 0 || vfs_strcmp(devname, "fb") == 0) {
+                id = 0;
+            } else if (devname[2] >= '0' && devname[2] <= '9') {
+                id = atoi(devname + 2);
+            } else {
+                id = -1;
+            }
+
+            if (id >= 0 && id <= 0) { // Currently only support /dev/fb0
+                vfs_file_t *vf = vfs_alloc_file();
+                if (vf) {
+                    vf->mount = &mounts[0];
+                    vf->fs_handle = (void*)(uintptr_t)id;
+                    vf->is_device = true;
+                    vf->device_type = DEVICE_TYPE_FRAMEBUFFER;
+                    vf->position = 0;
+                    spinlock_release_irqrestore(&vfs_lock, flags);
+                    return vf;
+                }
+            }
+        }
+
         Disk *d = disk_get_by_name(devname);
+
         if (d && (!mount || mount->path_len == 1)) {
             vfs_file_t *vf = vfs_alloc_file();
             if (vf) {
@@ -348,7 +456,7 @@ void vfs_close(vfs_file_t *file) {
     if (!file || !file->valid) return;
 
     vfs_mount_t *mount = file->mount;
-    if (mount && mount->ops->close) {
+    if (mount && mount->ops->close && !file->is_device) {
         mount->ops->close(mount->fs_private, file->fs_handle);
     }
 
@@ -361,31 +469,55 @@ int vfs_read(vfs_file_t *file, void *buf, int size) {
     if (!file || !file->valid || !file->mount) return -1;
     
     if (file->is_device) {
-        Disk *d = (Disk*)file->fs_handle;
-        if (!d) return -1;
-        
-        uint32_t total_read = 0;
-        uint32_t sector = (uint32_t)(file->position / 512);
-        uint32_t offset = (uint32_t)(file->position % 512);
-        uint8_t sector_buf[512];
-        
-        while (total_read < (uint32_t)size) {
-            if (sector >= d->total_sectors) break;
-            if (d->read_sector(d, sector, sector_buf) != 0) break;
+        if (file->device_type == DEVICE_TYPE_BLOCK) {
+            Disk *d = (Disk*)file->fs_handle;
+            if (!d) return -1;
             
-            uint32_t to_copy = 512 - offset;
-            if (to_copy > (uint32_t)size - total_read) to_copy = (uint32_t)size - total_read;
+            uint32_t total_read = 0;
+            uint32_t sector = (uint32_t)(file->position / 512);
+            uint32_t offset = (uint32_t)(file->position % 512);
+            uint8_t sector_buf[512];
             
-            extern void mem_memcpy(void *dest, const void *src, size_t len);
-            mem_memcpy((uint8_t*)buf + total_read, sector_buf + offset, to_copy);
+            while (total_read < (uint32_t)size) {
+                if (sector >= d->total_sectors) break;
+                if (d->read_sector(d, sector, sector_buf) != 0) break;
+                
+                uint32_t to_copy = 512 - offset;
+                if (to_copy > (uint32_t)size - total_read) to_copy = (uint32_t)size - total_read;
+                
+                memcpy((uint8_t*)buf + total_read, sector_buf + offset, to_copy);
+                
+                total_read += to_copy;
+                file->position += to_copy;
+                sector++;
+                offset = 0;
+            }
+            return (int)total_read;
+        } else if (file->device_type == DEVICE_TYPE_TTY) {
+            return tty_read_input((int)(uintptr_t)file->fs_handle, (char*)buf, (size_t)size);
+        } else if (file->device_type == DEVICE_TYPE_KEYBOARD) {
+            return tty_read_key((int)(uintptr_t)file->fs_handle, (uint8_t*)buf, size);
+        } else if (file->device_type == DEVICE_TYPE_MOUSE) {
+            return tty_read_mouse((int)(uintptr_t)file->fs_handle, (uint8_t*)buf, size);
+        } else if (file->device_type == DEVICE_TYPE_FRAMEBUFFER) {
+            // Read framebuffer data (raw pixel data)
+            vfs_framebuffer_info_t fb = graphics_get_fb_params();
             
-            total_read += to_copy;
-            file->position += to_copy;
-            sector++;
-            offset = 0;
+            if (!fb.address || fb.width == 0 || fb.height == 0) return -1;
+            
+            uint64_t fb_size = (uint64_t)fb.width * fb.height * (fb.bpp / 8);
+            if (file->position >= fb_size) return 0;
+            
+            uint64_t to_read = fb_size - file->position;
+            if ((uint64_t)size < to_read) to_read = size;
+            
+            memcpy(buf, (uint8_t*)fb.address + file->position, to_read);
+            file->position += to_read;
+            return (int)to_read;
         }
-        return (int)total_read;
+        return -1;
     }
+
 
     if (!file->mount->ops->read) return -1;
     int ret = file->mount->ops->read(file->mount->fs_private, file->fs_handle, buf, size);
@@ -394,16 +526,199 @@ int vfs_read(vfs_file_t *file, void *buf, int size) {
 }
 
 int vfs_write(vfs_file_t *file, const void *buf, int size) {
-    if (!file || !file->valid || !file->mount) return -1;
+    if (file->is_device) {
+        if (file->device_type == DEVICE_TYPE_TTY) {
+            tty_write((int)(uintptr_t)file->fs_handle, (const char*)buf, size);
+            return size;
+        } else if (file->device_type == DEVICE_TYPE_FRAMEBUFFER) {
+            vfs_framebuffer_info_t fb = graphics_get_fb_params();
+            
+            if (!fb.address || fb.width == 0 || fb.height == 0) return -1;
+            
+            uint64_t fb_size = (uint64_t)fb.width * fb.height * (fb.bpp / 8);
+            if (file->position >= fb_size) return -1;
+            
+            uint64_t to_write = fb_size - file->position;
+            if ((uint64_t)size < to_write) to_write = size;
+            
+            memcpy((uint8_t*)fb.address + file->position, buf, to_write);
+            file->position += to_write;
+            return (int)to_write;
+        }
+        return -1;
+    }
+
     if (!file->mount->ops->write) return -1;
 
+
     return file->mount->ops->write(file->mount->fs_private, file->fs_handle, buf, size);
+}
+
+int vfs_ioctl(vfs_file_t *file, uint64_t request, void *arg) {
+    if (!file || !file->valid || !file->mount) return -1;
+    
+    if (file->is_device) {
+        if (file->device_type == DEVICE_TYPE_TTY) {
+            extern int tty_ioctl(int id, uint64_t request, void *arg);
+            return tty_ioctl((int)(uintptr_t)file->fs_handle, request, arg);
+        } else if (file->device_type == DEVICE_TYPE_FRAMEBUFFER) {
+            // Handle framebuffer ioctls
+            
+            // Linux framebuffer ioctl commands
+            #define FBIOGET_VSCREENINFO 0x4600
+            #define FBIOPUT_VSCREENINFO 0x4601
+            #define FBIOGET_FSCREENINFO 0x4602
+            #define FBIOGETCMAP         0x4604
+            #define FBIOPUTCMAP         0x4605
+            
+            vfs_framebuffer_info_t fb = graphics_get_fb_params();
+            
+            // Validate framebuffer is initialized
+            if (!fb.address || fb.width == 0 || fb.height == 0 || fb.bpp == 0) {
+                return -1;
+            }
+            
+            if (request == FBIOGET_VSCREENINFO) {
+                // Return video screen info (variable info)
+                if (!arg) return -1;
+                
+                typedef struct {
+                    uint32_t xres;
+                    uint32_t yres;
+                    uint32_t xres_virtual;
+                    uint32_t yres_virtual;
+                    uint32_t xoffset;
+                    uint32_t yoffset;
+                    uint32_t bits_per_pixel;
+                    uint32_t grayscale;
+                    struct { uint32_t offset; uint32_t length; } red, green, blue, transp;
+                    uint32_t nonstd;
+                    uint32_t activate;
+                    uint32_t height;
+                    uint32_t width;
+                    uint32_t accel_flags;
+                    uint32_t pixclock;
+                    uint32_t left_margin;
+                    uint32_t right_margin;
+                    uint32_t upper_margin;
+                    uint32_t lower_margin;
+                    uint32_t hsync_len;
+                    uint32_t vsync_len;
+                    uint32_t sync;
+                    uint32_t vmode;
+                    uint32_t rotate;
+                    uint32_t colorspace;
+                    uint32_t reserved[4];
+                } fb_var_screeninfo_t;
+                
+                fb_var_screeninfo_t *vinfo = (fb_var_screeninfo_t *)arg;
+                vinfo->xres = fb.width;
+                vinfo->yres = fb.height;
+                vinfo->xres_virtual = fb.width;
+                vinfo->yres_virtual = fb.height;
+                vinfo->xoffset = 0;
+                vinfo->yoffset = 0;
+                vinfo->bits_per_pixel = fb.bpp;
+                vinfo->grayscale = 0;
+                vinfo->red.offset = fb.red_mask_shift;
+                vinfo->red.length = fb.red_mask_size;
+                vinfo->green.offset = fb.green_mask_shift;
+                vinfo->green.length = fb.green_mask_size;
+                vinfo->blue.offset = fb.blue_mask_shift;
+                vinfo->blue.length = fb.blue_mask_size;
+                vinfo->transp.offset = 0;
+                vinfo->transp.length = 0;
+                vinfo->nonstd = 0;
+                vinfo->activate = 0;
+                vinfo->height = 0;
+                vinfo->width = 0;
+                vinfo->accel_flags = 0;
+                vinfo->pixclock = 0;
+                vinfo->left_margin = 0;
+                vinfo->right_margin = 0;
+                vinfo->upper_margin = 0;
+                vinfo->lower_margin = 0;
+                vinfo->hsync_len = 0;
+                vinfo->vsync_len = 0;
+                vinfo->sync = 0;
+                vinfo->vmode = 0;
+                vinfo->rotate = 0;
+                vinfo->colorspace = 0;
+                
+                return 0;
+            } else if (request == FBIOGET_FSCREENINFO) {
+                // Return fixed screen info
+                if (!arg) return -1;
+                
+                typedef struct {
+                    char id[16];
+                    uint64_t smem_start;
+                    uint32_t smem_len;
+                    uint32_t type;
+                    uint32_t type_aux;
+                    uint32_t visual;
+                    uint16_t xpanstep;
+                    uint16_t ypanstep;
+                    uint16_t ywrapstep;
+                    uint32_t line_length;
+                    uint64_t mmio_start;
+                    uint32_t mmio_len;
+                    uint32_t accel;
+                    uint16_t reserved[3];
+                } fb_fix_screeninfo_t;
+                
+                fb_fix_screeninfo_t *finfo = (fb_fix_screeninfo_t *)arg;
+                vfs_strcpy(finfo->id, "BoredOS FB");
+                finfo->smem_start = (uint64_t)fb.address;
+                finfo->smem_len = (uint32_t)(fb.width * fb.height * (fb.bpp / 8));
+                finfo->type = 0; // FB_TYPE_PACKED_PIXELS
+                finfo->type_aux = 0;
+                finfo->visual = 2; // FB_VISUAL_TRUECOLOR
+                finfo->xpanstep = 0;
+                finfo->ypanstep = 0;
+                finfo->ywrapstep = 0;
+                finfo->line_length = (uint32_t)fb.pitch;
+                finfo->mmio_start = 0;
+                finfo->mmio_len = 0;
+                finfo->accel = 0;
+                
+                return 0;
+            }
+            return -1;
+        }
+        return -1;
+    }
+    
+    if (file->mount->ops->ioctl) {
+        return file->mount->ops->ioctl(file->mount->fs_private, file->fs_handle, request, arg);
+    }
+    
+    return -1;
 }
 
 int vfs_seek(vfs_file_t *file, int offset, int whence) {
     if (!file || !file->valid || !file->mount) return -1;
     
     if (file->is_device) {
+        if (file->device_type == DEVICE_TYPE_FRAMEBUFFER) {
+            // Seek in framebuffer
+            vfs_framebuffer_info_t fb = graphics_get_fb_params();
+            
+            if (!fb.address || fb.width == 0 || fb.height == 0) return -1;
+            
+            uint64_t fb_size = (uint64_t)fb.width * fb.height * (fb.bpp / 8);
+            uint64_t new_pos = file->position;
+            
+            if (whence == 0) new_pos = (uint64_t)offset; // SEEK_SET
+            else if (whence == 1) new_pos += (uint64_t)offset; // SEEK_CUR
+            else if (whence == 2) new_pos = fb_size + (uint64_t)offset; // SEEK_END
+            else return -1;
+            
+            if (new_pos > fb_size) new_pos = fb_size;
+            file->position = new_pos;
+            return 0;
+        }
+        
         Disk *d = (Disk*)file->fs_handle;
         if (!d) return -1;
         uint64_t new_pos = file->position;
@@ -434,8 +749,28 @@ int vfs_seek(vfs_file_t *file, int offset, int whence) {
 int vfs_poll(vfs_file_t *file, struct poll_table *pt) {
     if (!file || !file->valid || !file->mount) return POLLNVAL;
     if (file->is_device) {
+        if (file->device_type == DEVICE_TYPE_TTY || file->device_type == DEVICE_TYPE_KEYBOARD || file->device_type == DEVICE_TYPE_MOUSE) {
+            tty_t *t = tty_get((int)(uintptr_t)file->fs_handle);
+            if (!t) return POLLNVAL;
+            
+            tty_queue_t *q = NULL;
+            if (file->device_type == DEVICE_TYPE_TTY || file->device_type == DEVICE_TYPE_KEYBOARD) q = &t->key_queue;
+            else q = &t->mouse_queue;
+
+            if (pt && pt->qproc) {
+                pt->qproc(&q->wait_queue, pt);
+            }
+
+            int mask = 0;
+            uint64_t flags = spinlock_acquire_irqsave(&t->lock);
+            if (q->head != q->tail) mask |= POLLIN;
+            mask |= POLLOUT;
+            spinlock_release_irqrestore(&t->lock, flags);
+            return mask;
+        }
         return POLLIN | POLLOUT;
     }
+
     if (!file->mount->ops->poll) {
         return POLLIN | POLLOUT;
     }
@@ -452,6 +787,10 @@ uint32_t vfs_file_position(vfs_file_t *file) {
 uint32_t vfs_file_size(vfs_file_t *file) {
     if (!file || !file->valid || !file->mount) return 0;
     if (file->is_device) {
+        if (file->device_type == DEVICE_TYPE_FRAMEBUFFER) {
+            vfs_framebuffer_info_t fb = graphics_get_fb_params();
+            return (uint32_t)(fb.width * fb.height * (fb.bpp / 8));
+        }
         Disk *d = (Disk*)file->fs_handle;
         return d ? d->total_sectors * 512 : 0;
     }
@@ -537,12 +876,51 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max) {
         }
     }
 
-    // Special case: /dev listing for block devices
+    // Special case: /dev listing for block devices and TTYs
     if (vfs_strcmp(normalized, "/dev") == 0) {
+        // TTY devices
+        for (int i = 0; i < TTY_COUNT && count < max; i++) {
+            char name[16];
+            vfs_strcpy(name, "tty");
+            int pos = 3;
+            if (i + 1 >= 10) name[pos++] = '1';
+            name[pos++] = '0' + ((i + 1) % 10);
+            name[pos] = '\0';
+            
+            vfs_strcpy(entries[count].name, name);
+            entries[count].size = 0;
+            entries[count].is_directory = 0;
+            count++;
+        }
+
+        // Input devices (singular aliases)
+        if (count < max) {
+            vfs_strcpy(entries[count].name, "keyboard");
+            entries[count].size = 0;
+            entries[count].is_directory = 0;
+            count++;
+        }
+        if (count < max) {
+            vfs_strcpy(entries[count].name, "mouse");
+            entries[count].size = 0;
+            entries[count].is_directory = 0;
+            count++;
+        }
+
+        // Framebuffer device
+        if (count < max) {
+            vfs_strcpy(entries[count].name, "fb0");
+            vfs_framebuffer_info_t fb = graphics_get_fb_params();
+            entries[count].size = (uint64_t)fb.width * fb.height * (fb.bpp / 8);
+            entries[count].is_directory = 0;
+            count++;
+        }
+
         int dcount = disk_get_count();
         for (int i = 0; i < dcount && count < max; i++) {
             Disk *d = disk_get_by_index(i);
-            if (d) {
+            if (d && d->registered) {
+                // Ensure unique name (disk_manager_scan might register partitions)
                 bool found = false;
                 for (int k = 0; k < count; k++) {
                     if (vfs_strcmp(entries[k].name, d->devname) == 0) {
@@ -552,7 +930,7 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max) {
                 }
                 if (!found) {
                     vfs_strcpy(entries[count].name, d->devname);
-                    entries[count].size = d->total_sectors * 512;
+                    entries[count].size = (uint64_t)d->total_sectors * 512;
                     entries[count].is_directory = 0;
                     entries[count].start_cluster = 0;
                     entries[count].write_date = 0;
@@ -672,6 +1050,11 @@ bool vfs_exists(const char *path) {
 
     if (vfs_starts_with(normalized, "/dev/")) {
         const char *dev = normalized + 5;
+        // Check for framebuffer device
+        if (vfs_strcmp(dev, "fb0") == 0 || vfs_strcmp(dev, "fb") == 0) {
+            vfs_framebuffer_info_t fb = graphics_get_fb_params();
+            return fb.address != NULL && fb.width > 0 && fb.height > 0;
+        }
         if (disk_get_by_name(dev)) return true;
     }
 
@@ -712,6 +1095,8 @@ bool vfs_is_directory(const char *path) {
 
     if (vfs_starts_with(normalized, "/dev/")) {
         const char *dev = normalized + 5;
+        // Check if it's a framebuffer device (not a directory)
+        if (vfs_strcmp(dev, "fb0") == 0 || vfs_strcmp(dev, "fb") == 0) return false;
         Disk *d = disk_get_by_name(dev);
         if (d) return false;
     }

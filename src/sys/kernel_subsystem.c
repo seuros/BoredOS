@@ -1,13 +1,13 @@
 #include "kernel_subsystem.h"
 #include "memory_manager.h"
 #include "spinlock.h"
+#include "../core/kutils.h"
+
 
 static kernel_subsystem_t subsystems[MAX_SUBSYSTEMS];
 static int subsystem_count = 0;
 static spinlock_t sub_lock = SPINLOCK_INIT;
 
-extern void mem_memset(void *dest, int val, size_t len);
-extern void mem_memcpy(void *dest, const void *src, size_t len);
 
 static void sub_strcpy(char *dest, const char *src) {
     while (*src) *dest++ = *src++;
@@ -38,7 +38,7 @@ void subsystem_register(const char *name, kernel_subsystem_t **out_sub) {
     }
 
     kernel_subsystem_t *s = &subsystems[subsystem_count++];
-    mem_memset(s, 0, sizeof(kernel_subsystem_t));
+    memset(s, 0, sizeof(kernel_subsystem_t));
     sub_strcpy(s->name, name);
     
     spinlock_release_irqrestore(&sub_lock, flags);

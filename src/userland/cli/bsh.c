@@ -968,9 +968,10 @@ static void prompt_write_with_right(const char *left_tmpl, const char *right_tmp
 
 static void redraw_input(const char *prompt_tmpl, const char *line, int len, int cursor) {
     sys_write(1, "\r", 1);
+    sys_write(1, "\x1b[K", 3);
+    sys_write(1, "\x1b[?25h", 6);  // Show cursor
     prompt_write_with_right(prompt_tmpl, g_cfg.prompt_right);
     sys_write(1, line, len);
-    sys_write(1, "\x1b[K", 3);
     
     int diff = len - cursor;
     if (diff > 0) {
@@ -2441,6 +2442,7 @@ int main(int argc, char **argv) {
         const char *prompt_tmpl = g_cfg.prompt_left[0] ? g_cfg.prompt_left : DEFAULT_PROMPT;
         sys_write(1, "\r", 1);
         sys_write(1, "\x1b[K", 3);
+        sys_write(1, "\x1b[?25h", 6);  // Show cursor
         prompt_write_with_right(prompt_tmpl, g_cfg.prompt_right);
 
         char line[MAX_LINE];

@@ -13,10 +13,22 @@
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
 
 static struct limine_framebuffer *g_fb = NULL;
+static spinlock_t graphics_lock = SPINLOCK_INIT;
+static DirtyRect g_dirty = {0, 0, 0, 0, false};
+
+uint32_t blend_src_over_dst(uint32_t dst, uint32_t src) {
+    uint8_t alpha = (src >> 24) & 0xFF;
+    if (alpha == 0) return dst;
+    if (alpha == 255) return src;
+    
+    uint32_t rb = (((src & 0xFF00FF) * alpha) + ((dst & 0xFF00FF) * (255 - alpha))) >> 8;
+    uint32_t g = (((src & 0x00FF00) * alpha) + ((dst & 0x00FF00) * (255 - alpha))) >> 8;
+    return (0xFF000000) | (rb & 0xFF00FF) | (g & 0x00FF00);
+}
+
 static uint32_t g_bg_color = 0xFF696969;
 
 extern void serial_write(const char *str);
-extern uint32_t blend_src_over_dst(uint32_t dst, uint32_t src);
 
 static int g_color_mode = 0;
 
@@ -32,8 +44,6 @@ static uint32_t *g_logo_pixels = NULL;
 static int g_logo_w = 0;
 static int g_logo_h = 0;
 
-static DirtyRect g_dirty = {0, 0, 0, 0, false};
-static spinlock_t graphics_lock = SPINLOCK_INIT;
 
 
 #define MAX_FB_WIDTH 2048
@@ -123,6 +133,32 @@ uint64_t graphics_get_fb_addr(void) {
 
 int graphics_get_fb_bpp(void) {
     return g_fb ? g_fb->bpp : 0;
+}
+
+uint64_t graphics_get_fb_pitch(void) {
+    return g_fb ? g_fb->pitch : 0;
+}
+
+struct limine_framebuffer* graphics_get_fb_info(void) {
+    return g_fb;
+}
+
+framebuffer_info_t graphics_get_fb_params(void) {
+    framebuffer_info_t info = {0};
+    if (g_fb) {
+        info.address = g_fb->address;
+        info.width = g_fb->width;
+        info.height = g_fb->height;
+        info.pitch = g_fb->pitch;
+        info.bpp = g_fb->bpp;
+        info.red_mask_size = g_fb->red_mask_size;
+        info.red_mask_shift = g_fb->red_mask_shift;
+        info.green_mask_size = g_fb->green_mask_size;
+        info.green_mask_shift = g_fb->green_mask_shift;
+        info.blue_mask_size = g_fb->blue_mask_size;
+        info.blue_mask_shift = g_fb->blue_mask_shift;
+    }
+    return info;
 }
 
 // faltten the structure, cache the edges, calculate the right and bottom edges
@@ -882,9 +918,8 @@ void graphics_flip_buffer(void) {
         uint32_t *src_row = &g_back_buffer[curr_y * g_fb->width + x];
         
         if (g_fb->bpp == 32) {
-            extern void mem_memcpy(void *dest, const void *src, size_t len);
             uint32_t *dst_row = (uint32_t *)((uint8_t *)g_fb->address + curr_y * g_fb->pitch) + x;
-            mem_memcpy(dst_row, src_row, w * 4);
+            memcpy(dst_row, src_row, w * 4);
         } else if (g_fb->bpp == 16) {
             uint16_t *dst_row = (uint16_t *)((uint8_t *)g_fb->address + curr_y * g_fb->pitch) + x;
             for (int j = 0; j < w; j++) {
@@ -941,9 +976,7 @@ void graphics_flip_buffer(void) {
 void graphics_copy_screenbuffer(uint32_t *dest) {
     if (!g_fb || !dest) return;
     
-    extern uint64_t wm_lock_acquire(void);
-    extern void wm_lock_release(uint64_t);
-    uint64_t rflags = wm_lock_acquire();
+    uint64_t rflags = spinlock_acquire_irqsave(&graphics_lock);
 
     int sw = (int)g_fb->width;
     int sh = (int)g_fb->height;
@@ -983,7 +1016,7 @@ void graphics_copy_screenbuffer(uint32_t *dest) {
         }
     }
     
-    wm_lock_release(rflags);
+    spinlock_release_irqrestore(&graphics_lock, rflags);
 }
 
 void graphics_set_clipping(int x, int y, int w, int h) {
@@ -1088,12 +1121,37 @@ void graphics_blit_buffer(uint32_t *src, int dst_x, int dst_y, int w, int h) {
         }
     }
 }
+void graphics_copy_buffer(uint32_t *src) {
+    if (!g_fb || !src) return;
+    uint8_t *dst = (uint8_t *)g_fb->address;
+    int width = g_fb->width;
+    int height = g_fb->height;
+    int pitch = g_fb->pitch;
+    
+    for (int y = 0; y < height; y++) {
+        memcpy(dst + (y * pitch), src + (y * width), width * 4);
+    }
+}
+
+void graphics_copy_region(uint32_t *src, int y_start, int y_end) {
+    if (!g_fb || !src) return;
+    uint8_t *dst = (uint8_t *)g_fb->address;
+    int width = g_fb->width;
+    int height = g_fb->height;
+    int pitch = g_fb->pitch;
+    
+    if (y_start < 0) y_start = 0;
+    if (y_end > height) y_end = height;
+    if (y_start >= y_end) return;
+    
+    for (int y = y_start; y < y_end; y++) {
+        memcpy(dst + (y * pitch), src + (y * width), width * 4);
+    }
+}
+
 void graphics_scroll_back_buffer(int lines) {
     if (!g_fb || lines <= 0 || lines >= (int)g_fb->height) return;
-    
-    extern uint64_t wm_lock_acquire(void);
-    extern void wm_lock_release(uint64_t);
-    uint64_t rflags = wm_lock_acquire();
+    uint64_t rflags = spinlock_acquire_irqsave(&graphics_lock);
 
     int sw = (int)g_fb->width;
     int sh = (int)g_fb->height;
@@ -1108,6 +1166,6 @@ void graphics_scroll_back_buffer(int lines) {
         uint32_t *dst = &g_back_buffer[y * sw];
         for (int x = 0; x < sw; x++) dst[x] = 0;
     }
-
-    wm_lock_release(rflags);
+    
+    spinlock_release_irqrestore(&graphics_lock, rflags);
 }

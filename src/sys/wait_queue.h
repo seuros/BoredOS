@@ -15,6 +15,12 @@ typedef struct wait_queue_entry {
     struct wait_queue_entry *next;
 } wait_queue_entry_t;
 
+struct pollfd {
+    int fd;
+    short events;
+    short revents;
+};
+
 typedef struct {
     wait_queue_entry_t *head;
     spinlock_t lock;
@@ -33,5 +39,25 @@ void wait_queue_init(wait_queue_head_t *h);
 void wait_queue_add(wait_queue_head_t *h, wait_queue_entry_t *entry);
 void wait_queue_remove(wait_queue_head_t *h, wait_queue_entry_t *entry);
 void wait_queue_wake_all(wait_queue_head_t *h);
+
+// --- Poll/Select Support ---
+#define POLLIN      0x0001
+#define POLLOUT     0x0004
+#define POLLERR     0x0008
+#define POLLHUP     0x0010
+#define POLLNVAL    0x0020
+
+#define MAX_POLL_ENTRIES 32
+
+typedef struct {
+    wait_queue_head_t *h;
+    wait_queue_entry_t entry;
+} poll_entry_t;
+
+typedef struct {
+    poll_table_t pt;
+    poll_entry_t entries[MAX_POLL_ENTRIES];
+    int count;
+} poll_wtable_t;
 
 #endif
