@@ -4,9 +4,9 @@
 #include "tty.h"
 #include "spinlock.h"
 #include "wait_queue.h"
-#include "wm/font.h"
+#include "graphics/font.h"
 #include "../mem/memory_manager.h"
-#include "../wm/graphics.h"
+#include "../graphics/graphics.h"
 #include "../core/kutils.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -406,6 +406,10 @@ int tty_create(void) {
     return -1;
 }
 
+#define KDSETMODE   0x4B3A
+#define KD_TEXT     0x00
+#define KD_GRAPHICS 0x01
+
 int tty_ioctl(int id, uint64_t request, void *arg) {
     tty_t *t = tty_get(id);
     if (!t) return -1;
@@ -416,6 +420,14 @@ int tty_ioctl(int id, uint64_t request, void *arg) {
         ws->ws_col = t->width / 8;
         ws->ws_xpixel = t->width;
         ws->ws_ypixel = t->height;
+        return 0;
+    } else if (request == KDSETMODE) {
+        uint64_t mode = (uint64_t)arg;
+        if (mode == KD_GRAPHICS) {
+            tty_set_blit_enabled(false);
+        } else if (mode == KD_TEXT) {
+            tty_set_blit_enabled(true);
+        }
         return 0;
     }
     
@@ -467,7 +479,18 @@ int tty_get_foreground(int id) {
     return t->fg_pid;
 }
 
+volatile bool g_tty_blit_enabled = true;
+
+void tty_set_blit_enabled(bool enabled) {
+    g_tty_blit_enabled = enabled;
+}
+
+bool tty_get_blit_enabled(void) {
+    return g_tty_blit_enabled;
+}
+
 void tty_blit_active(void) {
+    if (!g_tty_blit_enabled) return;
     tty_t *t = tty_get(g_active_tty);
     if (!t) return;
     

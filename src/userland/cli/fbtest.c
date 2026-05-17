@@ -11,6 +11,8 @@
 #include <unistd.h>
 #include <sys/ioctl.h>
 #include <stdint.h>
+#include <sys/mman.h>
+#include <sys/kd.h>
 
 void print_info(int fd) {
     struct fb_var_screeninfo vinfo;
@@ -109,6 +111,24 @@ void draw_pattern(int fd, const struct fb_var_screeninfo *vinfo,
     printf("Pattern drawn: %ux%u with 4 color quadrants\n", width, height);
 }
 
+void draw_pattern_mmap(void *fb_mem, const struct fb_var_screeninfo *vinfo,
+                       const struct fb_fix_screeninfo *finfo) {
+    uint32_t width = vinfo->xres;
+    uint32_t height = vinfo->yres;
+    uint32_t line_length = finfo->line_length;
+    
+    uint8_t *fb = (uint8_t *)fb_mem;
+    for (uint32_t y = 0; y < height; y++) {
+        uint32_t *row = (uint32_t *)(fb + (uint64_t)y * line_length);
+        for (uint32_t x = 0; x < width; x++) {
+            uint32_t r = (x * 255) / width;
+            uint32_t g = (y * 255) / height;
+            uint32_t b = ((x + y) * 255) / (width + height);
+            row[x] = (0xFF << 24) | (r << 16) | (g << 8) | b;
+        }
+    }
+}
+
 int main(int argc, char *argv[]) {
     const char *fbdev = "/dev/fb0";
     int fd = open(fbdev, O_RDWR);
@@ -140,6 +160,45 @@ int main(int argc, char *argv[]) {
         
         printf("Drawing test pattern... this may take a moment\n");
         draw_pattern(fd, &vinfo, &finfo);
+    } else if (strcmp(cmd, "mmap") == 0) {
+        struct fb_var_screeninfo vinfo;
+        struct fb_fix_screeninfo finfo;
+        
+        ioctl(fd, FBIOGET_VSCREENINFO, &vinfo);
+        ioctl(fd, FBIOGET_FSCREENINFO, &finfo);
+        
+        printf("Switching TTY console to graphics mode (KD_GRAPHICS)...\n");
+        if (ioctl(0, KDSETMODE, (void*)KD_GRAPHICS) < 0) {
+            printf("Warning: could not set console to graphics mode\n");
+        }
+        
+        uint32_t size = finfo.line_length * vinfo.yres;
+        printf("Mapping framebuffer of size %u bytes via mmap...\n", size);
+        void *fb_mem = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+        if (fb_mem == MAP_FAILED) {
+            printf("Error: mmap failed!\n");
+            ioctl(0, KDSETMODE, (void*)KD_TEXT);
+            close(fd);
+            return 1;
+        }
+        
+        printf("Framebuffer successfully mapped at address %p\n", fb_mem);
+        printf("Rendering direct-memory gradient pattern instantly...\n");
+        
+        // Wait 50ms to let any active kernel TTY blitting cycle completely finish and settle
+        sleep(50);
+        
+        draw_pattern_mmap(fb_mem, &vinfo, &finfo);
+        
+        printf("Holding screen for 5 seconds to display the pattern...\n");
+        sleep(5000);
+        
+        printf("Restoring TTY console to text mode (KD_TEXT)...\n");
+        ioctl(0, KDSETMODE, (void*)KD_TEXT);
+        
+        printf("Unmapping framebuffer...\n");
+        munmap(fb_mem, size);
+        printf("Done!\n");
     } else {
         printf("Linux-compatible Framebuffer Test Utility\n");
         printf("Usage: fbtest [command]\n");
@@ -147,6 +206,7 @@ int main(int argc, char *argv[]) {
         printf("  info    - Display framebuffer information (default)\n");
         printf("  clear   - Clear framebuffer to black\n");
         printf("  pattern - Draw a 4-color test pattern\n");
+        printf("  mmap    - Draw a beautiful gradient instantly via mmap\n");
     }
     
     close(fd);
