@@ -73,6 +73,12 @@ static void process_release_slot(process_t *p) {
         p->fd_flags[i] = 0;
     }
     memset(&p->poll_table, 0, sizeof(p->poll_table));
+    p->elf_segment_count = 0;
+    for (int i = 0; i < 4; i++) p->elf_segments[i] = NULL;
+    p->mmap_allocation_count = 0;
+    for (int i = 0; i < 16; i++) p->mmap_allocations[i] = NULL;
+    p->sbrk_allocation_count = 0;
+    for (int i = 0; i < 64; i++) p->sbrk_allocations[i] = NULL;
     process_init_signal_state(p);
 }
 
@@ -987,6 +993,13 @@ void process_terminate_with_status(process_t *to_delete, int status) {
         to_delete->elf_segments[i] = NULL;
     }
     to_delete->elf_segment_count = 0;
+
+    // Free the physical memory occupied by sbrk allocations
+    for (uint32_t i = 0; i < to_delete->sbrk_allocation_count; i++) {
+        if (to_delete->sbrk_allocations[i]) kfree(to_delete->sbrk_allocations[i]);
+        to_delete->sbrk_allocations[i] = NULL;
+    }
+    to_delete->sbrk_allocation_count = 0;
     
     to_delete->user_stack_alloc = NULL;
     to_delete->kernel_stack_alloc = NULL;
@@ -1156,6 +1169,13 @@ int process_exec_replace_current(registers_t *regs, const char* filepath, const 
         proc->elf_segments[i] = NULL;
     }
     proc->elf_segment_count = 0;
+
+    // Free old sbrk heap allocations
+    for (uint32_t i = 0; i < proc->sbrk_allocation_count; i++) {
+        if (proc->sbrk_allocations[i]) kfree(proc->sbrk_allocations[i]);
+        proc->sbrk_allocations[i] = NULL;
+    }
+    proc->sbrk_allocation_count = 0;
 
     size_t elf_load_size = 0;
     uint64_t entry_point = elf_load(filepath, new_pml4, &elf_load_size, proc);
@@ -1334,4 +1354,129 @@ uint64_t sched_ipi_handler(registers_t *regs) {
     
     // Run the scheduler for this CPU
     return process_schedule((uint64_t)regs);
+}
+
+process_t* process_duplicate(registers_t *parent_regs) {
+    uint64_t rflags = spinlock_acquire_irqsave(&runqueue_lock);
+
+    process_t *parent = process_get_current();
+    if (!parent) {
+        spinlock_release_irqrestore(&runqueue_lock, rflags);
+        return NULL;
+    }
+
+    process_t *child = NULL;
+    for (int i = 0; i < MAX_PROCESSES; i++) {
+        if (processes[i].pid == 0xFFFFFFFF) {
+            child = &processes[i];
+            break;
+        }
+    }
+
+    if (!child) {
+        spinlock_release_irqrestore(&runqueue_lock, rflags);
+        return NULL;
+    }
+
+    child->pid = next_pid++;
+    child->parent_pid = parent->pid;
+    child->pgid = parent->pgid;
+    child->is_user = parent->is_user;
+    child->state = PROC_STATE_RUNNING;
+    child->cpu_affinity = parent->cpu_affinity;
+    child->exited = false;
+    child->exit_status = 0;
+    child->sleep_until = 0;
+    child->ticks = 0;
+    child->tty_id = parent->tty_id;
+    child->is_terminal_proc = parent->is_terminal_proc;
+    child->kill_pending = false;
+    child->used_memory = parent->used_memory;
+    
+    extern void *memcpy(void *dest, const void *src, size_t n);
+    memcpy(child->cwd, parent->cwd, 1024);
+    memcpy(child->name, parent->name, 64);
+    int len = 0;
+    while (child->name[len]) len++;
+    if (len < 55) {
+        child->name[len++] = '-';
+        child->name[len++] = 'c';
+        child->name[len++] = 'h';
+        child->name[len++] = 'i';
+        child->name[len++] = 'l';
+        child->name[len++] = 'd';
+        child->name[len] = 0;
+    }
+
+    extern uint64_t paging_clone_user_pml4(uint64_t parent_pml4_phys);
+    child->pml4_phys = paging_clone_user_pml4(parent->pml4_phys);
+    if (!child->pml4_phys) {
+        child->pid = 0xFFFFFFFF;
+        spinlock_release_irqrestore(&runqueue_lock, rflags);
+        return NULL;
+    }
+
+    child->kernel_stack_alloc = kmalloc_aligned(32768, 32768);
+    if (!child->kernel_stack_alloc) {
+        extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
+        paging_destroy_user_pml4_phys(child->pml4_phys);
+        child->pml4_phys = 0;
+        child->pid = 0xFFFFFFFF;
+        spinlock_release_irqrestore(&runqueue_lock, rflags);
+        return NULL;
+    }
+    child->kernel_stack = (uint64_t)child->kernel_stack_alloc + 32768;
+    child->user_stack_alloc = NULL;
+
+    // Copy kernel stack content
+    memcpy(child->kernel_stack_alloc, parent->kernel_stack_alloc, 32768);
+
+    // Calculate RSP offset
+    uint64_t parent_stack_base = (uint64_t)parent->kernel_stack_alloc;
+    uint64_t offset = (uint64_t)parent_regs - parent_stack_base;
+    child->rsp = (uint64_t)child->kernel_stack_alloc + offset;
+
+    // Set return registers for the child to 0
+    registers_t *child_regs = (registers_t *)child->rsp;
+    child_regs->rax = 0;
+
+    child->fpu_initialized = parent->fpu_initialized;
+
+    // Clone open file descriptors
+    for (int i = 0; i < MAX_PROCESS_FDS; i++) {
+        child->fds[i] = parent->fds[i];
+        child->fd_kind[i] = parent->fd_kind[i];
+        child->fd_flags[i] = parent->fd_flags[i];
+        
+        if (child->fds[i]) {
+            if (child->fd_kind[i] == PROC_FD_KIND_FILE) {
+                process_fd_file_ref_t *ref = (process_fd_file_ref_t *)child->fds[i];
+                ref->refs++;
+            } else if (child->fd_kind[i] == PROC_FD_KIND_PIPE_READ || child->fd_kind[i] == PROC_FD_KIND_PIPE_WRITE) {
+                process_fd_pipe_t *pipe = (process_fd_pipe_t *)child->fds[i];
+                if (child->fd_kind[i] == PROC_FD_KIND_PIPE_READ) pipe->readers++;
+                else pipe->writers++;
+            } else if (child->fd_kind[i] == PROC_FD_KIND_SOCKET) {
+                process_socket_addref((process_fd_socket_t *)child->fds[i]);
+            }
+        }
+    }
+
+    // Reset slab, mmap and sbrk tracking counters/pointers for the child.
+    child->elf_segment_count = 0;
+    for (int i = 0; i < 4; i++) child->elf_segments[i] = NULL;
+    child->mmap_allocation_count = 0;
+    for (int i = 0; i < 16; i++) child->mmap_allocations[i] = NULL;
+    child->sbrk_allocation_count = 0;
+    for (int i = 0; i < 64; i++) child->sbrk_allocations[i] = NULL;
+    child->mmap_current = parent->mmap_current;
+
+    // Link the child process to the scheduling queue
+    uint32_t my_cpu = smp_this_cpu_id();
+    child->cpu_affinity = my_cpu;
+    child->next = current_process[my_cpu]->next;
+    current_process[my_cpu]->next = child;
+
+    spinlock_release_irqrestore(&runqueue_lock, rflags);
+    return child;
 }

@@ -1597,6 +1597,13 @@ static uint64_t sys_cmd_exec_process(const syscall_args_t *args) {
     return process_exec_replace_current(args->regs, path_buf, args_ptr);
 }
 
+static uint64_t sys_cmd_fork_process(const syscall_args_t *args) {
+    extern process_t* process_duplicate(registers_t *parent_regs);
+    process_t *child = process_duplicate(args->regs);
+    if (!child) return -1;
+    return child->pid;
+}
+
 static uint64_t sys_cmd_waitpid(const syscall_args_t *args) {
     process_t *proc = process_get_current();
     int pid = (int)args->arg2;
@@ -2020,6 +2027,7 @@ static const syscall_handler_fn sys_cmd_table[SYS_CMD_TABLE_SIZE] = {
     [SYSTEM_CMD_GET_ELF_PRIMARY_IMAGE] = sys_cmd_get_elf_primary_image,
     [SYSTEM_CMD_TTY_GET_ID]          = sys_cmd_tty_get_id,
     [SYSTEM_CMD_SET_FS_BASE]         = sys_cmd_set_fs_base,
+    [SYSTEM_CMD_FORK]                = sys_cmd_fork_process,
     [SYSTEM_CMD_DISK_GET_COUNT]      = sys_cmd_disk_get_count,
     [SYSTEM_CMD_DISK_GET_INFO]       = sys_cmd_disk_get_info,
     [SYSTEM_CMD_DISK_WRITE_GPT]      = sys_cmd_disk_write_gpt,
@@ -2104,6 +2112,10 @@ static uint64_t handle_sys_sbrk(const syscall_args_t *args) {
             if (!phys_block) return (uint64_t)-1; // Out of memory
             
             memset(phys_block, 0, total_size);
+            
+            if (proc->sbrk_allocation_count < 64) {
+                proc->sbrk_allocations[proc->sbrk_allocation_count++] = phys_block;
+            }
             
             uint64_t phys_addr = (uint64_t)phys_block;
             for (uint64_t page = start_page; page < end_page; page += 4096) {

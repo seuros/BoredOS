@@ -118,6 +118,10 @@ typedef struct process {
     void *mmap_allocations[16];
     uint32_t mmap_allocation_count;
 
+    // Tracking for sbrk heap allocations to allow full reclamation on exit.
+    void *sbrk_allocations[64];
+    uint32_t sbrk_allocation_count;
+
     poll_wtable_t poll_table;
 } __attribute__((aligned(16))) process_t;
 

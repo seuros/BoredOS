@@ -66,6 +66,13 @@ uint64_t exception_handler_c(registers_t *regs) {
         serial_write("\nError Code: 0x");
         itoa_hex(regs->err_code, buf);
         serial_write(buf);
+        if (vector == 14) {
+            uint64_t cr2;
+            asm volatile("mov %%cr2, %0" : "=r"(cr2));
+            serial_write("\nCR2: 0x");
+            itoa_hex(cr2, buf);
+            serial_write(buf);
+        }
         serial_write("\nTerminating process.\n");
         
         if (cmd_get_cursor_col() != 0) cmd_write("\n");
