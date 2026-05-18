@@ -94,7 +94,8 @@ void paging_map_page(uint64_t pml4_phys, uint64_t virtual_addr, uint64_t physica
     // Get PT
     page_table_t* pt = (page_table_t*)p2v(pd->entries[pd_index] & PT_ADDR_MASK);
     
-    // Set entry in PT
+    // Set entry in PT. Always update the entry so overlapping ELF LOAD segments
+    // can overwrite earlier mappings for the same page.
     pt->entries[pt_index] = (physical_addr & PT_ADDR_MASK) | flags;
     
     // Flush TLB for this address
@@ -138,6 +139,12 @@ void paging_destroy_user_pml4_phys(uint64_t pml4_phys) {
                             
                             for (int pt_idx = 0; pt_idx < 512; pt_idx++) {
                                 if (pt->entries[pt_idx] & PT_PRESENT) {
+                                    uint64_t phys_addr = pt->entries[pt_idx] & PT_ADDR_MASK;
+                                    if (phys_addr != 0) {
+                                        extern void kfree(void* ptr);
+                                        extern uint64_t p2v(uint64_t phys);
+                                        kfree((void*)p2v(phys_addr));
+                                    }
                                 }
                             }
                             extern void kfree(void* ptr);
@@ -204,4 +211,72 @@ void paging_unmap_page(uint64_t pml4_phys, uint64_t virtual_addr) {
     
     pt->entries[pt_index] = 0;
     asm volatile("invlpg (%0)" : : "r"(virtual_addr) : "memory");
+}
+
+uint64_t paging_clone_user_pml4(uint64_t parent_pml4_phys) {
+    uint64_t child_pml4_phys = paging_create_user_pml4_phys();
+    if (!child_pml4_phys) return 0;
+
+    page_table_t* parent_pml4 = (page_table_t*)p2v(parent_pml4_phys);
+    page_table_t* child_pml4 = (page_table_t*)p2v(child_pml4_phys);
+
+    // Copy user space mapping entries (0-255)
+    for (int pml4_idx = 0; pml4_idx < 256; pml4_idx++) {
+        if (parent_pml4->entries[pml4_idx] & PT_PRESENT) {
+            uint64_t child_pdpt_phys = alloc_page_table_phys();
+            if (!child_pdpt_phys) goto fail;
+            child_pml4->entries[pml4_idx] = child_pdpt_phys | (parent_pml4->entries[pml4_idx] & ~PT_ADDR_MASK);
+
+            page_table_t* parent_pdpt = (page_table_t*)p2v(parent_pml4->entries[pml4_idx] & PT_ADDR_MASK);
+            page_table_t* child_pdpt = (page_table_t*)p2v(child_pdpt_phys);
+
+            for (int pdpt_idx = 0; pdpt_idx < 512; pdpt_idx++) {
+                if (parent_pdpt->entries[pdpt_idx] & PT_PRESENT) {
+                    uint64_t child_pd_phys = alloc_page_table_phys();
+                    if (!child_pd_phys) goto fail;
+                    child_pdpt->entries[pdpt_idx] = child_pd_phys | (parent_pdpt->entries[pdpt_idx] & ~PT_ADDR_MASK);
+
+                    page_table_t* parent_pd = (page_table_t*)p2v(parent_pdpt->entries[pdpt_idx] & PT_ADDR_MASK);
+                    page_table_t* child_pd = (page_table_t*)p2v(child_pd_phys);
+
+                    for (int pd_idx = 0; pd_idx < 512; pd_idx++) {
+                        if (parent_pd->entries[pd_idx] & PT_PRESENT) {
+                            uint64_t child_pt_phys = alloc_page_table_phys();
+                            if (!child_pt_phys) goto fail;
+                            child_pd->entries[pd_idx] = child_pt_phys | (parent_pd->entries[pd_idx] & ~PT_ADDR_MASK);
+
+                            page_table_t* parent_pt = (page_table_t*)p2v(parent_pd->entries[pd_idx] & PT_ADDR_MASK);
+                            page_table_t* child_pt = (page_table_t*)p2v(child_pt_phys);
+
+                            for (int pt_idx = 0; pt_idx < 512; pt_idx++) {
+                                if (parent_pt->entries[pt_idx] & PT_PRESENT) {
+                                    uint64_t parent_phys = parent_pt->entries[pt_idx] & PT_ADDR_MASK;
+                                    uint64_t flags = parent_pt->entries[pt_idx] & ~PT_ADDR_MASK;
+                                    
+                                    // Check if this physical frame belongs to standard RAM/heap
+                                    extern bool mm_is_heap_address(void *ptr);
+                                    if (mm_is_heap_address((void*)p2v(parent_phys))) {
+                                        // Allocate a clean page for the child and copy content
+                                        void *child_page = kmalloc_aligned(4096, 4096);
+                                        if (!child_page) goto fail;
+                                        extern void *memcpy(void *dest, const void *src, size_t n);
+                                        memcpy(child_page, (void*)p2v(parent_phys), 4096);
+                                        child_pt->entries[pt_idx] = v2p((uint64_t)child_page) | flags;
+                                    } else {
+                                        // Device mapping (like framebuffer), just share the physical address
+                                        child_pt->entries[pt_idx] = parent_phys | flags;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return child_pml4_phys;
+
+fail:
+    paging_destroy_user_pml4_phys(child_pml4_phys);
+    return 0;
 }

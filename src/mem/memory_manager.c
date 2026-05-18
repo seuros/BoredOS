@@ -596,3 +596,24 @@ MemStats memory_get_stats(void) {
     s.slab_frees            = slab_total_frees;
     return s;
 }
+
+bool mm_is_heap_address(void *ptr) {
+    if (!ptr || !initialized) return false;
+    
+    // Check slab allocator first
+    SlabPage *page;
+    if (slab_owns(ptr, &page)) return true;
+    
+    // Check block list
+    uint64_t rflags = spinlock_acquire_irqsave(&mm_lock);
+    for (int i = 0; i < block_count; i++) {
+        uintptr_t base = (uintptr_t)block_list[i].address;
+        size_t size = block_list[i].size;
+        if ((uintptr_t)ptr >= base && (uintptr_t)ptr < base + size) {
+            spinlock_release_irqrestore(&mm_lock, rflags);
+            return true;
+        }
+    }
+    spinlock_release_irqrestore(&mm_lock, rflags);
+    return false;
+}

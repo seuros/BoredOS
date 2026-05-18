@@ -51,5 +51,6 @@ void kfree(void *ptr);
 void* krealloc(void *ptr, size_t new_size);
 
 MemStats memory_get_stats(void);
+bool mm_is_heap_address(void *ptr);
 
 #endif // MEMORY_MANAGER_H
