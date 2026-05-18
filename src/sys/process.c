@@ -16,6 +16,19 @@
 #include "unix_socket.h"
 #include "../core/kutils.h"
 
+#define MSR_FS_BASE 0xC0000100
+
+static inline uint64_t rdmsr(uint32_t msr) {
+    uint32_t low, high;
+    asm volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(msr));
+    return ((uint64_t)high << 32) | low;
+}
+
+static inline void wrmsr(uint32_t msr, uint64_t value) {
+    uint32_t low = value & 0xFFFFFFFF;
+    uint32_t high = value >> 32;
+    asm volatile("wrmsr" : : "c"(msr), "a"(low), "d"(high));
+}
 
 extern void cmd_write(const char *str);
 extern void serial_write(const char *str);
@@ -184,6 +197,7 @@ void process_init(void) {
     memcpy(kernel_proc->name, "kernel", 7);
     kernel_proc->ticks = 0;
     kernel_proc->used_memory = 32768; // Kernel stack
+    kernel_proc->fs_base = 0;
 
     kernel_proc->next = kernel_proc; // Circular linked list
     kernel_proc->cpu_affinity = 0;   // Kernel always on BSP
@@ -220,6 +234,7 @@ process_t* process_create(void (*entry_point)(void), bool is_user) {
     new_proc->pgid = parent ? parent->pgid : new_proc->pid;
     new_proc->exited = false;
     new_proc->exit_status = 0;
+    new_proc->fs_base = 0;
     process_init_signal_state(new_proc);
     
     if (parent) {
@@ -345,6 +360,7 @@ process_t* process_create_elf(const char* filepath, const char* args_str, bool t
     new_proc->is_user = true;
     new_proc->state = PROC_STATE_RUNNING;
     new_proc->elf_segment_count = 0;
+    new_proc->fs_base = 0;
     spinlock_release_irqrestore(&runqueue_lock, rflags);
     
     // 1. Setup Page Table
@@ -517,25 +533,55 @@ process_t* process_create_elf(const char* filepath, const char* args_str, bool t
     }
     argv_ptrs[argc] = 0; // Null terminator for argv
 
-    // Align stack to 8 bytes before pushing argv array
+    // Push System V ABI Stack Frame:
+    // rsp -> [argc]
+    //        [argv[0] ... argv[argc-1]]
+    //        [NULL]
+    //        [envp[0] = NULL]
+    //        [auxv[0] key = AT_NULL]
+    //        [auxv[0] val = 0]
+    
+    int total_elements = 1 + (argc + 1) + 1 + 2; 
+    int total_size = total_elements * (int)sizeof(uint64_t);
+
     uint64_t current_user_sp = user_args_buf;
-    current_user_sp &= ~7ULL;
+    current_user_sp &= ~7ULL; // 8-byte align
+    
+    // Align final stack to 16 bytes
+    uint64_t target_sp = current_user_sp - total_size;
+    target_sp &= ~15ULL;
+    current_user_sp = target_sp + total_size;
+    
     args_buf = (char *)((uint64_t)stack + (current_user_sp - (0x800000 - user_stack_size)));
 
-    // Push argv array
+    // 1. Push AUXV (AT_NULL)
+    args_buf -= 2 * sizeof(uint64_t);
+    current_user_sp -= 2 * sizeof(uint64_t);
+    uint64_t *user_auxv = (uint64_t *)args_buf;
+    user_auxv[0] = 0;
+    user_auxv[1] = 0;
+
+    // 2. Push ENVP (empty)
+    args_buf -= 1 * sizeof(uint64_t);
+    current_user_sp -= 1 * sizeof(uint64_t);
+    uint64_t *user_envp = (uint64_t *)args_buf;
+    user_envp[0] = 0;
+
+    // 3. Push ARGV
     int argv_size = (argc + 1) * sizeof(uint64_t);
     args_buf -= argv_size;
     current_user_sp -= argv_size;
-    
-    uint64_t actual_argv_ptr = current_user_sp; // Store the true pointer to argv array
-    
     uint64_t *user_argv_array = (uint64_t *)args_buf;
     for (int i = 0; i <= argc; i++) {
         user_argv_array[i] = argv_ptrs[i];
     }
-    
-    // Align stack to 16 bytes. crt0.asm does `and rsp, -16`, but it's good practice
-    current_user_sp &= ~15ULL;
+    uint64_t actual_argv_ptr = current_user_sp;
+
+    // 4. Push ARGC
+    args_buf -= 1 * sizeof(uint64_t);
+    current_user_sp -= 1 * sizeof(uint64_t);
+    uint64_t *user_argc = (uint64_t *)args_buf;
+    user_argc[0] = (uint64_t)argc;
 
     // 4. Build Stack Frame for context switch via IRETQ
     uint64_t* stack_ptr = (uint64_t*)((uint64_t)kernel_stack + 65536);
@@ -668,6 +714,7 @@ uint64_t process_schedule(uint64_t current_rsp) {
         
     // Save context
     cur->rsp = current_rsp;
+    cur->fs_base = rdmsr(MSR_FS_BASE);
 
     if (cur->kill_pending && cur->pid != 0xFFFFFFFF && cur->pid != 0) {
         process_cleanup_inner(cur);
@@ -719,6 +766,7 @@ uint64_t process_schedule(uint64_t current_rsp) {
             }
 
             paging_switch_directory(current_process[my_cpu]->pml4_phys);
+            wrmsr(MSR_FS_BASE, current_process[my_cpu]->fs_base);
 
             current_process[my_cpu]->ticks++;
             uint64_t next_rsp = current_process[my_cpu]->rsp;
@@ -783,6 +831,7 @@ uint64_t process_schedule(uint64_t current_rsp) {
     
     // Switch page table
     paging_switch_directory(current_process[my_cpu]->pml4_phys);
+    wrmsr(MSR_FS_BASE, current_process[my_cpu]->fs_base);
     
     // Clean up any stale poll entries
     poll_cleanup(current_process[my_cpu]);
@@ -1010,6 +1059,7 @@ uint64_t process_terminate_current(void) {
     }
     
     paging_switch_directory(current_process[my_cpu]->pml4_phys);
+    wrmsr(MSR_FS_BASE, current_process[my_cpu]->fs_base);
 
     free_kernel_stack_later[my_cpu] = to_delete->kernel_stack_alloc;
     to_delete->kernel_stack_alloc = NULL;
@@ -1168,18 +1218,55 @@ int process_exec_replace_current(registers_t *regs, const char* filepath, const 
     }
     argv_ptrs[argc] = 0;
 
+    // Push System V ABI Stack Frame:
+    // rsp -> [argc]
+    //        [argv[0] ... argv[argc-1]]
+    //        [NULL]
+    //        [envp[0] = NULL]
+    //        [auxv[0] key = AT_NULL]
+    //        [auxv[0] val = 0]
+    
+    int total_elements = 1 + (argc + 1) + 1 + 2; 
+    int total_size = total_elements * (int)sizeof(uint64_t);
+
     uint64_t current_user_sp = user_args_buf;
-    current_user_sp &= ~7ULL;
+    current_user_sp &= ~7ULL; // 8-byte align
+    
+    // Align final stack to 16 bytes
+    uint64_t target_sp = current_user_sp - total_size;
+    target_sp &= ~15ULL;
+    current_user_sp = target_sp + total_size;
+    
     args_buf = (char *)((uint64_t)stack + (current_user_sp - (0x800000 - user_stack_size)));
 
-    int argv_size = (argc + 1) * (int)sizeof(uint64_t);
+    // 1. Push AUXV (AT_NULL)
+    args_buf -= 2 * sizeof(uint64_t);
+    current_user_sp -= 2 * sizeof(uint64_t);
+    uint64_t *user_auxv = (uint64_t *)args_buf;
+    user_auxv[0] = 0;
+    user_auxv[1] = 0;
+
+    // 2. Push ENVP (empty)
+    args_buf -= 1 * sizeof(uint64_t);
+    current_user_sp -= 1 * sizeof(uint64_t);
+    uint64_t *user_envp = (uint64_t *)args_buf;
+    user_envp[0] = 0;
+
+    // 3. Push ARGV
+    int argv_size = (argc + 1) * sizeof(uint64_t);
     args_buf -= argv_size;
     current_user_sp -= argv_size;
-    uint64_t actual_argv_ptr = current_user_sp;
     uint64_t *user_argv_array = (uint64_t *)args_buf;
-    for (int i = 0; i <= argc; i++) user_argv_array[i] = argv_ptrs[i];
+    for (int i = 0; i <= argc; i++) {
+        user_argv_array[i] = argv_ptrs[i];
+    }
+    uint64_t actual_argv_ptr = current_user_sp;
 
-    current_user_sp &= ~15ULL;
+    // 4. Push ARGC
+    args_buf -= 1 * sizeof(uint64_t);
+    current_user_sp -= 1 * sizeof(uint64_t);
+    uint64_t *user_argc = (uint64_t *)args_buf;
+    user_argc[0] = (uint64_t)argc;
 
     if (proc->user_stack_alloc) {
         kfree(proc->user_stack_alloc);

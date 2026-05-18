@@ -47,6 +47,8 @@
 
 #define SYSTEM_CMD_SET_KEYBOARD_LAYOUT 49
 #define SYSTEM_CMD_GET_KEYBOARD_LAYOUT 51
+#define SYSTEM_CMD_SET_FS_BASE 79
+#define MSR_FS_BASE 0xC0000100
 
 // Read MSR
 static inline uint64_t rdmsr(uint32_t msr) {
@@ -1485,6 +1487,15 @@ static uint64_t sys_cmd_tty_get_id(const syscall_args_t *args) {
     return (uint64_t)proc->tty_id;
 }
 
+static uint64_t sys_cmd_set_fs_base(const syscall_args_t *args) {
+    uint64_t fs_base = args->arg2;
+    process_t *proc = process_get_current();
+    if (!proc || !proc->is_user) return (uint64_t)-1;
+    proc->fs_base = fs_base;
+    wrmsr(MSR_FS_BASE, fs_base);
+    return 0;
+}
+
 static uint64_t sys_cmd_tty_read_out(const syscall_args_t *args) {
     int tty_id = (int)args->arg2;
     char *buf = (char *)args->arg3;
@@ -2008,6 +2019,7 @@ static const syscall_handler_fn sys_cmd_table[SYS_CMD_TABLE_SIZE] = {
     [SYSTEM_CMD_GET_ELF_METADATA]    = sys_cmd_get_elf_metadata,
     [SYSTEM_CMD_GET_ELF_PRIMARY_IMAGE] = sys_cmd_get_elf_primary_image,
     [SYSTEM_CMD_TTY_GET_ID]          = sys_cmd_tty_get_id,
+    [SYSTEM_CMD_SET_FS_BASE]         = sys_cmd_set_fs_base,
     [SYSTEM_CMD_DISK_GET_COUNT]      = sys_cmd_disk_get_count,
     [SYSTEM_CMD_DISK_GET_INFO]       = sys_cmd_disk_get_info,
     [SYSTEM_CMD_DISK_WRITE_GPT]      = sys_cmd_disk_write_gpt,
@@ -2199,16 +2211,131 @@ static uint64_t handle_sys_munmap(const syscall_args_t *args) {
     return 0;
 }
 
-#define SYSCALL_TABLE_SIZE 13
+// ---------------------------------------------------------------------------
+// Futex implementation
+// ---------------------------------------------------------------------------
+
+#define FUTEX_BUCKETS 64
+
+typedef struct futex_waiter {
+    uint32_t            *uaddr;      // userspace address being waited on
+    process_t           *proc;       // waiting process
+    struct futex_waiter *next;
+} futex_waiter_t;
+
+typedef struct {
+    futex_waiter_t *head;
+    spinlock_t      lock;
+} futex_bucket_t;
+
+static futex_bucket_t g_futex_buckets[FUTEX_BUCKETS];
+static bool           g_futex_initialized = false;
+
+static void futex_init(void) {
+    for (int i = 0; i < FUTEX_BUCKETS; i++) {
+        g_futex_buckets[i].head = NULL;
+        g_futex_buckets[i].lock = SPINLOCK_INIT;
+    }
+    g_futex_initialized = true;
+}
+
+static inline futex_bucket_t *futex_bucket(uint32_t *uaddr) {
+    if (!g_futex_initialized) futex_init();
+    uintptr_t key = (uintptr_t)uaddr >> 2;
+    return &g_futex_buckets[key & (FUTEX_BUCKETS - 1)];
+}
+
+/* Public kernel API, usable from sysdep test drivers */
+int kernel_futex_wait(uint32_t *uaddr, uint32_t expected) {
+    futex_bucket_t *b = futex_bucket(uaddr);
+    process_t *proc  = process_get_current();
+    if (!proc) return -1;
+
+    uint64_t flags = spinlock_acquire_irqsave(&b->lock);
+
+    /* Atomically verify the value hasn't changed */
+    if (*uaddr != expected) {
+        spinlock_release_irqrestore(&b->lock, flags);
+        return -11; /* EAGAIN */
+    }
+
+    futex_waiter_t waiter;
+    waiter.uaddr = uaddr;
+    waiter.proc  = proc;
+    waiter.next  = b->head;
+    b->head      = &waiter;
+
+    proc->state = PROC_STATE_BLOCKED;
+    spinlock_release_irqrestore(&b->lock, flags);
+    /* Caller (handle_sys_futex) must trigger a reschedule */
+    return 0;
+}
+
+int kernel_futex_wake(uint32_t *uaddr, int count) {
+    futex_bucket_t *b = futex_bucket(uaddr);
+    int woken = 0;
+
+    uint64_t flags = spinlock_acquire_irqsave(&b->lock);
+
+    futex_waiter_t **pprev = &b->head;
+    futex_waiter_t  *cur   = b->head;
+    while (cur && woken < count) {
+        if (cur->uaddr == uaddr) {
+            *pprev = cur->next;          /* unlink */
+            if (cur->proc) {
+                cur->proc->state = PROC_STATE_RUNNING;
+            }
+            woken++;
+            cur = *pprev;                /* continue from same position */
+        } else {
+            pprev = &cur->next;
+            cur   = cur->next;
+        }
+    }
+
+    spinlock_release_irqrestore(&b->lock, flags);
+    return woken;
+}
+
+/*
+ * Syscall handler: SYS_FUTEX
+ *   arg1 = uint32_t *uaddr
+ *   arg2 = int op   (FUTEX_WAIT=0 or FUTEX_WAKE=1)
+ *   arg3 = uint32_t val  (expected value for WAIT, max wakers for WAKE)
+ */
+static uint64_t handle_sys_futex(const syscall_args_t *args) {
+    uint32_t *uaddr = (uint32_t *)args->arg1;
+    int       op    = (int)args->arg2;
+    uint32_t  val   = (uint32_t)args->arg3;
+
+    if (!uaddr) return (uint64_t)-1;
+
+    if (op == FUTEX_WAIT) {
+        /* kernel_futex_wait sets proc->state = BLOCKED;
+           the caller (syscall_handler_c) must then reschedule. */
+        int rc = kernel_futex_wait(uaddr, val);
+        return (uint64_t)rc;
+    }
+
+    if (op == FUTEX_WAKE) {
+        int woken = kernel_futex_wake(uaddr, (int)val);
+        return (uint64_t)woken;
+    }
+
+    return (uint64_t)-1; /* ENOSYS for unknown ops */
+}
+
+#define SYSCALL_TABLE_SIZE 14
 static const syscall_handler_fn syscall_table[SYSCALL_TABLE_SIZE] = {
-    [SYS_WRITE] = handle_sys_write,          
-    [SYS_FS]    = handle_sys_fs,             
-    [5]         = handle_sys_system,    
-    [8]         = handle_debug_serial_write, 
-    [9]         = handle_sys_sbrk,            
-    [10]        = handle_sys_kill,            
-    [SYS_MMAP]  = handle_sys_mmap,
+    [SYS_WRITE]  = handle_sys_write,          
+    [SYS_FS]     = handle_sys_fs,             
+    [5]          = handle_sys_system,    
+    [8]          = handle_debug_serial_write, 
+    [9]          = handle_sys_sbrk,            
+    [10]         = handle_sys_kill,            
+    [SYS_MMAP]   = handle_sys_mmap,
     [SYS_MUNMAP] = handle_sys_munmap,
+    [SYS_FUTEX]  = handle_sys_futex,
 };
 
 static uint64_t syscall_handler_inner(registers_t *regs) {
@@ -2330,6 +2457,14 @@ uint64_t syscall_handler_c(registers_t *regs) {
     if (syscall_num == SYS_FS && regs->rax == (uint64_t)-2) {
         regs->rax = -2; 
         return process_schedule((uint64_t)regs);
+    }
+
+    /* FUTEX_WAIT: if the process was just blocked, reschedule */
+    if (syscall_num == SYS_FUTEX && regs->rsi == FUTEX_WAIT && regs->rax == 0) {
+        process_t *proc = process_get_current();
+        if (proc && proc->state == PROC_STATE_BLOCKED) {
+            return process_schedule((uint64_t)regs);
+        }
     }
 
     return syscall_maybe_deliver_signal(regs);

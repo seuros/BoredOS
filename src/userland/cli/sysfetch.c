@@ -4,17 +4,14 @@
 #include <stdlib.h>
 #include <syscall.h>
 #include <stdbool.h>
+#include <string.h>
+#include <stdio.h>
 
 #define MAX_ASCII_LINES 32
 #define MAX_ASCII_WIDTH 80
 #define MAX_INFO_LINES 15
 
-static char* strncpy(char *dest, const char *src, size_t n) {
-    size_t i;
-    for (i = 0; i < n && src[i] != '\0'; i++) dest[i] = src[i];
-    for ( ; i < n; i++) dest[i] = '\0';
-    return dest;
-}
+
 
 typedef struct {
     char ascii_art_file[256];
@@ -85,8 +82,7 @@ static void printf_ansi(const char *str) {
                 str++;
             }
         } else {
-            char c[2] = {*str, 0};
-            sys_write(1, c, 1);
+            putchar(*str);
             str++;
         }
     }
@@ -246,6 +242,7 @@ static void load_ascii_art() {
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
+    setvbuf(stdout, NULL, _IONBF, 0);
     load_config();
     load_ascii_art();
 

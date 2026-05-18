@@ -4,9 +4,10 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <string.h>
+#include <stdio.h>
 #include <syscall.h>
 #include <stdbool.h>
-#include <unistd.h>
 #include "utf-8.h"
 
 #define MAX_LINE 512
@@ -1016,7 +1017,7 @@ static int wait_for_pid_status(int pid, int *status) {
             if (fg != pid) return -1;
         }
 
-        sleep(10);
+        usleep(10 * 1000);
     }
 }
 
@@ -1123,7 +1124,7 @@ static int builtin_time(int argc, char *argv[]) {
     for (int attempt = 0; attempt < 5; attempt++) {
         pid = sys_spawn(full_path, args_buf[0] ? args_buf : NULL, SPAWN_FLAG_TERMINAL | SPAWN_FLAG_INHERIT_TTY, 0);
         if (pid >= 0) break;
-        sleep(10);
+        usleep(10 * 1000);
     }
 
     if (pid >= 0) {
@@ -1864,7 +1865,7 @@ static int execute_argv_inner(int argc, char *argv[], int depth, bool isolated, 
     for (int attempt = 0; attempt < 5; attempt++) {
         pid = sys_spawn(full_path, args_buf[0] ? args_buf : NULL, spawn_flags, 0);
         if (pid >= 0) break;
-        sleep(10);
+        usleep(10 * 1000);
     }
     if (pid < 0) {
         set_color(g_color_error);

@@ -11,6 +11,10 @@ boredos.dump
 # Userland
 src/userland/bin/
 
+# mlibc build output 
+src/userland/mlibc/build/
+src/userland/mlibc/headers-build/
+
 # Temporary files
 **/.DS_Store
 .DS_Store

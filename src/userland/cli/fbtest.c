@@ -186,12 +186,12 @@ int main(int argc, char *argv[]) {
         printf("Rendering direct-memory gradient pattern instantly...\n");
         
         // Wait 50ms to let any active kernel TTY blitting cycle completely finish and settle
-        sleep(50);
+        usleep(50 * 1000);
         
         draw_pattern_mmap(fb_mem, &vinfo, &finfo);
         
         printf("Holding screen for 5 seconds to display the pattern...\n");
-        sleep(5000);
+        usleep(5000 * 1000);
         
         printf("Restoring TTY console to text mode (KD_TEXT)...\n");
         ioctl(0, KDSETMODE, (void*)KD_TEXT);

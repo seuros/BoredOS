@@ -66,6 +66,7 @@ typedef struct registers_t {
 typedef struct process {
     uint32_t pid;
     uint64_t rsp; 
+    uint64_t fs_base;
     uint64_t pml4_phys; 
     uint64_t kernel_stack; 
     bool is_user;

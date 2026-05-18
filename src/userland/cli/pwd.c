@@ -3,6 +3,8 @@
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include <stdlib.h>
 #include <syscall.h>
+#include <stdio.h>
+#include <unistd.h>
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;

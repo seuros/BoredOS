@@ -3,10 +3,13 @@
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 // BOREDOS_APP_DESC: List running processes.
 
-#include "../libc/syscall.h"
-#include "../libc/stdlib.h"
-#include "../libc/string.h"
-#include "../libc/stdio.h"
+#include <syscall.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h>
 
 #define MAX_PROC_ENTRIES 64
 

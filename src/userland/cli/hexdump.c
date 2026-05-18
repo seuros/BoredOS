@@ -7,6 +7,8 @@
 #include "stdlib.h"
 #include "string.h"
 #include "stdio.h"
+#include <stdio.h>
+#include <fcntl.h>
 
 #define BYTES_PER_LINE 16
 

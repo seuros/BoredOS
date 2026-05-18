@@ -1,5 +1,6 @@
 #include <stdlib.h>
 #include <syscall.h>
+#include <stdio.h>
 
 static int parse_ip(const char* str, net_ipv4_address_t* ip) {
     int val = 0;

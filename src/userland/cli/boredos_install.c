@@ -2,10 +2,13 @@
 // This software is released under the GNU General Public License v3.0. See LICENSE file for details.
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include <stdarg.h>
-#include "../libc/syscall.h"
-#include "../libc/stdlib.h"
-#include "../libc/string.h"
-#include "../libc/stdio.h"
+#include <syscall.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdio.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 static int sc_strcmp(const char *a, const char *b) {
     while (*a && *a == *b) { a++; b++; }

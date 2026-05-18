@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "syscall.h"
+#include <unistd.h>
 
 int type = 0;           // 0 is nothing, 1 is file, 2 is dir
 char *name = NULL;      

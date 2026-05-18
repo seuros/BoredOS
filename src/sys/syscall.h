@@ -33,8 +33,13 @@ typedef enum {
     SYS_SYSTEM = 5,
     SYS_MMAP = 11,
     SYS_MUNMAP = 12,
+    SYS_FUTEX = 13,
     SYS_EXIT = 60
 } syscall_t;
+
+// Futex operations (mlibc FutexWait/FutexWake)
+#define FUTEX_WAIT 0
+#define FUTEX_WAKE 1
 
 // FS Commands
 typedef enum {
@@ -114,10 +119,13 @@ typedef enum {
     SYSTEM_CMD_SIGPENDING = 75,
     SYSTEM_CMD_GET_ELF_METADATA = 76,
     SYSTEM_CMD_GET_ELF_PRIMARY_IMAGE = 77,
-    SYSTEM_CMD_TTY_GET_ID = 78
+    SYSTEM_CMD_TTY_GET_ID = 78,
+    SYSTEM_CMD_SET_FS_BASE = 79
 } system_cmd_t;
 
 void syscall_init(void);
 uint64_t syscall_handler_c(registers_t *regs);
+int kernel_futex_wait(uint32_t *uaddr, uint32_t expected);
+int kernel_futex_wake(uint32_t *uaddr, int count);
 
 #endif // SYSCALL_H

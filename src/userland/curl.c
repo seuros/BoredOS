@@ -1,6 +1,8 @@
 #include <stdlib.h>
 #include <syscall.h>
 #include <stdint.h> // Added for uint8_t
+#include <stdio.h>
+#include <unistd.h>
 
 static int parse_ip(const char* str, net_ipv4_address_t* ip) {
     int val = 0;

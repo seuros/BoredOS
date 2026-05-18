@@ -11,11 +11,10 @@
  */
 #include <stdlib.h>
 #include <syscall.h>
+#include <string.h>
+#include <stdio.h>
 
-int putchar(int c) {
-    char ch = (char)c;
-    return sys_write(1, &ch, 1);
-}
+
 
 int k;double sin()
          ,cos();int main(){float A=

@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <syscall.h>
 #include <stdbool.h>
+#include <string.h>
+#include <stdio.h>
 
 static void str_copy(char *dst, const char *src, int max_len) {
     int i = 0;

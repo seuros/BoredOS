@@ -1,8 +1,9 @@
 // Copyright (c) 2023-2026 Christiaan (chris@boreddev.nl)
 // This software is released under the GNU General Public License v3.0. See LICENSE file for details.
-#include "../libc/syscall.h"
-#include "../libc/stdio.h"
-#include "../libc/string.h"
+#include <syscall.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdio.h>
 
 int main(int argc, char **argv) {
     if (argc < 2) {

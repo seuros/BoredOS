@@ -7,6 +7,7 @@
 #include <string.h>
 #include <syscall.h>
 #include <stdint.h>
+#include <unistd.h>
 
 #define MAX_ENTRIES 1024
 #define DU_KB 1024ULL

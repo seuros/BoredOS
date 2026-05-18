@@ -66,7 +66,7 @@ LIMINE_URL_BASE = https://github.com/limine-bootloader/limine/raw/v$(LIMINE_VERS
 
 HOST_OS := $(shell uname -s 2>/dev/null || echo Windows)
 
-.PHONY: all clean run run-hd limine-setup run-windows run-mac run-linux run-hd-mac run-hd-windows run-hd-linux
+.PHONY: all clean run run-hd limine-setup run-windows run-mac run-linux run-hd-mac run-hd-windows run-hd-linux userland
 
 all:
 	$(call PRINT_STEP,STARTING BOREDOS BUILD)
@@ -112,11 +112,13 @@ $(KERNEL_ELF): $(OBJ_FILES)
 	@printf "$(YELLOW)[LD]$(RESET) Linking kernel ELF: $@\n"
 	$(LD) $(LDFLAGS) -o $@ $(OBJ_FILES)
 	@printf "$(GREEN)[OK]$(RESET) Kernel ELF built: $@\n"
+
+userland:
 	$(call PRINT_STEP,BUILDING USERLAND)
 	$(MAKE) -C $(SRC_DIR)/userland
 	@printf "$(GREEN)[OK]$(RESET) Userland build complete.\n"
 
-$(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
+$(BUILD_DIR)/initrd.tar: $(KERNEL_ELF) userland
 	$(call PRINT_STEP,BUILDING INITRD)
 	@printf "$(YELLOW)[INITRD]$(RESET) Cleaning previous initrd directory...\n"
 	rm -rf $(BUILD_DIR)/initrd
@@ -167,16 +169,19 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF)
 	@cp $(SRC_DIR)/userland/cli/third_party/tcc/libtcc1.a $(BUILD_DIR)/initrd/usr/lib/
 	@cp $(SRC_DIR)/userland/cli/third_party/tcc/include/*.h $(BUILD_DIR)/initrd/usr/lib/tcc/include/
 	@cp $(SRC_DIR)/userland/sdk/lib/libboredos.a $(BUILD_DIR)/initrd/usr/lib/
-	@cp $(SRC_DIR)/userland/sdk/lib/libc.a $(BUILD_DIR)/initrd/usr/lib/
-	@cp $(SRC_DIR)/userland/sdk/lib/libm.a $(BUILD_DIR)/initrd/usr/lib/
-	@cp $(SRC_DIR)/userland/bin/crt0.o $(BUILD_DIR)/initrd/usr/lib/crt0.o
-	@cp $(SRC_DIR)/userland/bin/crt0.o $(BUILD_DIR)/initrd/usr/lib/crt1.o
-	@cp $(SRC_DIR)/userland/bin/empty.o $(BUILD_DIR)/initrd/usr/lib/crti.o
-	@cp $(SRC_DIR)/userland/bin/empty.o $(BUILD_DIR)/initrd/usr/lib/crtn.o
-	@cp $(SRC_DIR)/userland/libc/*.h $(BUILD_DIR)/initrd/usr/include/
-	@cp $(SRC_DIR)/userland/libc/sys/*.h $(BUILD_DIR)/initrd/usr/include/sys/
-	@cp $(SRC_DIR)/userland/libc/*.h $(BUILD_DIR)/initrd/usr/include/libc/
-	@cp $(SRC_DIR)/userland/libc/*.h $(BUILD_DIR)/initrd/usr/local/include/
+	@cp $(SRC_DIR)/userland/mlibc/build/libc.a $(BUILD_DIR)/initrd/usr/lib/
+	@cp $(SRC_DIR)/userland/mlibc/build/libc.a $(BUILD_DIR)/initrd/usr/lib/libm.a
+	@x86_64-elf-strip -S $(BUILD_DIR)/initrd/usr/lib/libc.a
+	@x86_64-elf-strip -S $(BUILD_DIR)/initrd/usr/lib/libm.a
+	@cp $(SRC_DIR)/userland/mlibc/build/sysdeps/boredos/crt1.o $(BUILD_DIR)/initrd/usr/lib/crt1.o
+	@cp $(SRC_DIR)/userland/bin/crti.o $(BUILD_DIR)/initrd/usr/lib/crti.o
+	@cp $(SRC_DIR)/userland/bin/crtn.o $(BUILD_DIR)/initrd/usr/lib/crtn.o
+	@printf "$(YELLOW)[COPY]$(RESET) mlibc headers...\n"
+	@if [ -d $(SRC_DIR)/userland/mlibc/build/mlibc-headers ]; then \
+		cp -r $(SRC_DIR)/userland/mlibc/build/mlibc-headers/usr/include/. $(BUILD_DIR)/initrd/usr/include/; \
+	fi
+	@cp $(SRC_DIR)/userland/sdk/include/*.h $(BUILD_DIR)/initrd/usr/include/ 2>/dev/null || true
+	@cp $(SRC_DIR)/userland/sdk/include/sys/*.h $(BUILD_DIR)/initrd/usr/include/sys/ 2>/dev/null || true
 	@cp $(SRC_DIR)/userland/stb_image.h $(BUILD_DIR)/initrd/usr/include/
 
 	@printf "$(YELLOW)[COPY]$(RESET) Wallpapers...\n"

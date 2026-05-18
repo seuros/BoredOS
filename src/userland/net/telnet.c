@@ -3,6 +3,8 @@
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include <stdlib.h>
 #include <syscall.h>
+#include <stdio.h>
+#include <unistd.h>
 
 static int term_cols = 116;
 static int term_rows = 41;

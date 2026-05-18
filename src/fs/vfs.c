@@ -717,18 +717,21 @@ int vfs_seek(vfs_file_t *file, int offset, int whence) {
             if (new_pos > fb_size) new_pos = fb_size;
             file->position = new_pos;
             return 0;
+        } else if (file->device_type == DEVICE_TYPE_BLOCK) {
+            Disk *d = (Disk*)file->fs_handle;
+            if (!d) return -1;
+            uint64_t new_pos = file->position;
+            if (whence == 0) new_pos = (uint64_t)offset; // SET
+            else if (whence == 1) new_pos += (uint64_t)offset; // CUR
+            else if (whence == 2) new_pos = (uint64_t)(d->total_sectors * 512 + offset); // END
+            
+            if (new_pos > (uint64_t)d->total_sectors * 512) new_pos = (uint64_t)d->total_sectors * 512;
+            file->position = new_pos;
+            return 0;
+        } else {
+            // Seek not supported on other device types (TTY, Keyboard, Mouse)
+            return -1;
         }
-        
-        Disk *d = (Disk*)file->fs_handle;
-        if (!d) return -1;
-        uint64_t new_pos = file->position;
-        if (whence == 0) new_pos = (uint64_t)offset; // SET
-        else if (whence == 1) new_pos += (uint64_t)offset; // CUR
-        else if (whence == 2) new_pos = (uint64_t)(d->total_sectors * 512 + offset); // END
-        
-        if (new_pos > (uint64_t)d->total_sectors * 512) new_pos = (uint64_t)d->total_sectors * 512;
-        file->position = new_pos;
-        return 0;
     }
 
     if (!file->mount->ops->seek) return -1;

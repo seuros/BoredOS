@@ -3,6 +3,7 @@
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include <stdlib.h>
 #include <syscall.h>
+#include <stdio.h>
 
 typedef struct {
     uint16_t vendor;

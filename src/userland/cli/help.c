@@ -4,6 +4,7 @@
 // BOREDOS_APP_DESC: Show command and system help.
 #include <stdlib.h>
 #include <syscall.h>
+#include <stdio.h>
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;

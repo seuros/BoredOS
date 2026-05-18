@@ -1,5 +1,8 @@
 #include <stdlib.h>
 #include <syscall.h>
+#include <string.h>
+#include <stdio.h>
+#include <unistd.h>
 
 static void print_ip(const net_ipv4_address_t* ip) {
     if (!ip) return;

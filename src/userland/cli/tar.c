@@ -1,11 +1,15 @@
 // Copyright (c) 2026 Lluciocc (https://github.com/lluciocc)
 // This software is released under the GNU General Public License v3.0. See LICENSE file for details.
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
-#include "../libc/syscall.h" // to fix Fat32_FileInfo definition
+#include <syscall.h> // to fix Fat32_FileInfo definition
 #include "stdio.h"
 #include "stdlib.h"
 #include "string.h"
 #include "stdint.h"
+#include <string.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define TAR_BLOCK_SIZE 512
 #define TAR_BUFFER_SIZE 4096
