@@ -47,6 +47,7 @@ struct BoredOSSysdepTags :
     Tcsetattr,
     Tcgetwinsize,
     Tcsetwinsize,
+    Pselect,
     // --- Process ---
     Fork,
     Execve,

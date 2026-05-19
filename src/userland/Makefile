@@ -85,8 +85,22 @@ LUA_CFLAGS = -std=gnu11 -ffreestanding -O2 -fno-stack-protector -fno-stack-check
 APP_LINK_DEPS = $(MLIBC_CRT1) $(BIN_DIR)/crti.o $(BIN_DIR)/crtn.o \
                 $(SDK_DIR)/lib/libboredos.a $(MLIBC_LIB)
 
-all: $(BIN_DIR) $(MLIBC_LIB) $(SDK_DIR)/lib/libboredos.a $(APP_ELFS) \
-     $(BIN_DIR)/lua.elf $(BIN_DIR)/tcc.elf $(BIN_DIR)/empty.o
+# ---------------------------------------------------------------------------
+# PDCurses/Ncurses Build Configuration
+# ---------------------------------------------------------------------------
+PDCURSES_DIR  = cli/third_party/pdcurses
+PDC_CFLAGS    = $(CFLAGS) -I$(PDCURSES_DIR) -DPDC_WIDE -DPDC_FORCE_UTF8 \
+                -Wno-unused-parameter -Wno-missing-prototypes -Wno-strict-prototypes \
+                -Wno-shadow -Wno-conversion -Wno-sign-conversion -Wno-double-promotion \
+                -Wno-missing-declarations -Wno-implicit-fallthrough -Wno-redundant-decls
+
+PDC_CORE_SRCS = $(wildcard $(PDCURSES_DIR)/pdcurses/*.c)
+PDC_VT_SRCS   = $(wildcard $(PDCURSES_DIR)/vt/*.c)
+PDC_OBJS      = $(patsubst $(PDCURSES_DIR)/pdcurses/%.c, $(BIN_DIR)/pdcurses_core_%.o, $(PDC_CORE_SRCS)) \
+                $(patsubst $(PDCURSES_DIR)/vt/%.c, $(BIN_DIR)/pdcurses_vt_%.o, $(PDC_VT_SRCS))
+
+all: $(BIN_DIR) $(MLIBC_LIB) $(SDK_DIR)/lib/libboredos.a $(SDK_DIR)/lib/libncurses.a $(APP_ELFS) \
+     $(BIN_DIR)/lua.elf $(BIN_DIR)/tcc.elf $(BIN_DIR)/cursestest.elf $(BIN_DIR)/empty.o
 
 # ---------------------------------------------------------------------------
 # mlibc build — meson configure (once) + ninja -j10
@@ -148,7 +162,25 @@ $(SDK_DIR)/lib/libboredos.a: $(BOREDOS_OBJS)
 	cp libboredos/sys/*.h $(SDK_DIR)/include/sys/
 	x86_64-elf-ar rcs $@ $(BOREDOS_OBJS)
 
-sdk: $(SDK_DIR)/lib/libboredos.a
+# ---------------------------------------------------------------------------
+# libncurses.a & libcurses.a — PDCurses/Ncurses library
+# ---------------------------------------------------------------------------
+$(BIN_DIR)/pdcurses_core_%.o: $(PDCURSES_DIR)/pdcurses/%.c | $(BIN_DIR) $(MLIBC_LIB)
+	$(CC) $(PDC_CFLAGS) -c $< -o $@
+
+$(BIN_DIR)/pdcurses_vt_%.o: $(PDCURSES_DIR)/vt/%.c | $(BIN_DIR) $(MLIBC_LIB)
+	$(CC) $(PDC_CFLAGS) -c $< -o $@
+
+$(SDK_DIR)/lib/libncurses.a: $(PDC_OBJS)
+	mkdir -p $(SDK_DIR)/lib $(SDK_DIR)/include
+	cp $(PDCURSES_DIR)/curses.h $(SDK_DIR)/include/curses.h
+	cp $(PDCURSES_DIR)/curses.h $(SDK_DIR)/include/ncurses.h
+	cp $(PDCURSES_DIR)/panel.h $(SDK_DIR)/include/panel.h
+	cp $(PDCURSES_DIR)/term.h $(SDK_DIR)/include/term.h
+	x86_64-elf-ar rcs $@ $(PDC_OBJS)
+	cp $@ $(SDK_DIR)/lib/libcurses.a
+
+sdk: $(SDK_DIR)/lib/libboredos.a $(SDK_DIR)/lib/libncurses.a
 
 # ---------------------------------------------------------------------------
 # App metadata notes
@@ -161,10 +193,10 @@ $(BIN_DIR)/%.note.c: $(APP_METADATA_TOOL) | $(BIN_DIR)
 	fi; \
 	sh $(APP_METADATA_TOOL) "$*" "$$src" "$(APP_ICON_SOURCE_DIR)" "$@"
 
-$(BIN_DIR)/%.note.o: $(BIN_DIR)/%.note.c | $(MLIBC_LIB) $(SDK_DIR)/lib/libboredos.a
+$(BIN_DIR)/%.note.o: $(BIN_DIR)/%.note.c | $(MLIBC_LIB) sdk
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(BIN_DIR)/%.o: %.c | $(BIN_DIR) $(MLIBC_LIB) $(SDK_DIR)/lib/libboredos.a
+$(BIN_DIR)/%.o: %.c | $(BIN_DIR) $(MLIBC_LIB) sdk
 	$(CC) $(CFLAGS) -c $< -o $@
 
 # ---------------------------------------------------------------------------
@@ -198,6 +230,13 @@ $(BIN_DIR)/%.o: games/doom/%.c | $(BIN_DIR) $(MLIBC_LIB) sdk
 
 $(BIN_DIR)/doom.elf: $(DOOM_OBJS) $(BIN_DIR)/doom.note.o $(APP_LINK_DEPS)
 	$(APP_LD) $(DOOM_OBJS) $(BIN_DIR)/doom.note.o -L$(SDK_DIR)/lib -lboredos -L$(MLIBC_BUILD_DIR) -lc $(BIN_DIR)/crtn.o -o $@
+	$(STRIP) $@
+
+$(BIN_DIR)/cursestest.o: cli/cursestest.c | $(BIN_DIR) $(MLIBC_LIB) sdk
+	$(CC) $(CFLAGS) -Isdk/include -DPDC_WIDE -DPDC_FORCE_UTF8 -c $< -o $@
+
+$(BIN_DIR)/cursestest.elf: $(BIN_DIR)/cursestest.o $(BIN_DIR)/cursestest.note.o $(APP_LINK_DEPS) $(SDK_DIR)/lib/libncurses.a
+	$(APP_LD) $(BIN_DIR)/cursestest.o $(BIN_DIR)/cursestest.note.o -L$(SDK_DIR)/lib -lncurses -lboredos -L$(MLIBC_BUILD_DIR) -lc $(BIN_DIR)/crtn.o -o $@
 	$(STRIP) $@
 
 $(BIN_DIR)/%.elf: $(BIN_DIR)/%.o $(BIN_DIR)/%.note.o $(APP_LINK_DEPS)

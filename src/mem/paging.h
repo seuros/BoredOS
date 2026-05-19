@@ -36,7 +36,7 @@ uint64_t paging_create_user_pml4_phys(void);
 void paging_switch_directory(uint64_t pml4_phys);
 
 // Destroys a user page directory, reclaiming all physical memory used for page table structures.
-void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
+void paging_destroy_user_pml4_phys(uint64_t pml4_phys, bool free_mapped_pages);
 uint64_t paging_get_kernel_pml4_phys(void);
 
 void paging_init(void);

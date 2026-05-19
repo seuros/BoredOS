@@ -97,6 +97,7 @@ typedef struct process {
     uint32_t cpu_affinity;    
     bool is_idle;            
     char cwd[1024];          
+    bool is_cloned_child;
 
     uint32_t parent_pid;
     uint32_t pgid;

@@ -120,7 +120,7 @@ uint64_t paging_create_user_pml4_phys(void) {
     return new_pml4_phys;
 }
 
-void paging_destroy_user_pml4_phys(uint64_t pml4_phys) {
+void paging_destroy_user_pml4_phys(uint64_t pml4_phys, bool free_mapped_pages) {
     if (!pml4_phys) return;
     page_table_t* pml4 = (page_table_t*)p2v(pml4_phys);
     
@@ -140,7 +140,7 @@ void paging_destroy_user_pml4_phys(uint64_t pml4_phys) {
                             for (int pt_idx = 0; pt_idx < 512; pt_idx++) {
                                 if (pt->entries[pt_idx] & PT_PRESENT) {
                                     uint64_t phys_addr = pt->entries[pt_idx] & PT_ADDR_MASK;
-                                    if (phys_addr != 0) {
+                                    if (phys_addr != 0 && free_mapped_pages) {
                                         extern void kfree(void* ptr);
                                         extern uint64_t p2v(uint64_t phys);
                                         kfree((void*)p2v(phys_addr));
@@ -277,6 +277,6 @@ uint64_t paging_clone_user_pml4(uint64_t parent_pml4_phys) {
     return child_pml4_phys;
 
 fail:
-    paging_destroy_user_pml4_phys(child_pml4_phys);
+    paging_destroy_user_pml4_phys(child_pml4_phys, true);
     return 0;
 }

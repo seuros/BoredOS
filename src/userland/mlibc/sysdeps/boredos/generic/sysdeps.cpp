@@ -17,6 +17,9 @@
 #include <abi-bits/seek-whence.h>
 #include <abi-bits/vm-flags.h>
 #include <termios.h>
+#include <stdarg.h>
+#include <sys/select.h>
+#include <poll.h>
 
 // ---------------------------------------------------------------------------
 // BoredOS syscall numbers (must match src/sys/syscall.h)
@@ -606,6 +609,8 @@ int SysdepImpl<Ioctl>::operator()(int fd, unsigned long request, void *arg, int 
     return 0;
 }
 
+
+
 // --- stat / fstat ---
 int SysdepImpl<Stat>::operator()(mlibc::fsfd_target fsfdt, int fd, const char *path,
                                  int flags, struct stat *result) {
@@ -929,6 +934,80 @@ int SysdepImpl<Tcsetwinsize>::operator()(int fd, const struct winsize *winsz) {
     if (SysdepImpl<Isatty>::operator()(fd) != 0) {
         return ENOTTY;
     }
+    return 0;
+}
+
+// --- pselect ---
+int SysdepImpl<Pselect>::operator()(int num_fds, fd_set *read_set, fd_set *write_set, fd_set *except_set, const struct timespec *timeout, const sigset_t *sigmask, int *num_events) {
+    (void)sigmask;
+    int count = 0;
+    for (int fd = 0; fd < num_fds; fd++) {
+        bool r = read_set && FD_ISSET(fd, read_set);
+        bool w = write_set && FD_ISSET(fd, write_set);
+        bool e = except_set && FD_ISSET(fd, except_set);
+        if (r || w || e) count++;
+    }
+
+    struct pollfd *pfds = nullptr;
+    if (count > 0) {
+        pfds = (struct pollfd *)__builtin_alloca(sizeof(struct pollfd) * count);
+        int idx = 0;
+        for (int fd = 0; fd < num_fds; fd++) {
+            bool r = read_set && FD_ISSET(fd, read_set);
+            bool w = write_set && FD_ISSET(fd, write_set);
+            bool e = except_set && FD_ISSET(fd, except_set);
+            if (r || w || e) {
+                pfds[idx].fd = fd;
+                pfds[idx].events = 0;
+                if (r) pfds[idx].events |= POLLIN;
+                if (w) pfds[idx].events |= POLLOUT;
+                if (e) pfds[idx].events |= POLLPRI;
+                pfds[idx].revents = 0;
+                idx++;
+            }
+        }
+    }
+
+    int poll_timeout = -1;
+    if (timeout) {
+        poll_timeout = timeout->tv_sec * 1000 + timeout->tv_nsec / 1000000;
+        if (poll_timeout == 0 && (timeout->tv_sec > 0 || timeout->tv_nsec > 0)) {
+            poll_timeout = 1;
+        }
+    }
+
+    int rc;
+    while ((rc = (int)_sc4(BORED_SYS_FS, (uint64_t)FS_CMD_POLL, (uint64_t)pfds, (uint64_t)count, (uint64_t)poll_timeout)) == -2);
+
+    if (read_set) FD_ZERO(read_set);
+    if (write_set) FD_ZERO(write_set);
+    if (except_set) FD_ZERO(except_set);
+
+    int ready_events = 0;
+    if (rc > 0 && pfds) {
+        for (int i = 0; i < count; i++) {
+            int fd = pfds[i].fd;
+            if (pfds[i].events & POLLIN) {
+                if (pfds[i].revents & (POLLIN | POLLERR | POLLHUP | POLLNVAL)) {
+                    if (read_set) { FD_SET(fd, read_set); ready_events++; }
+                }
+            }
+            if (pfds[i].events & POLLOUT) {
+                if (pfds[i].revents & (POLLOUT | POLLERR | POLLHUP | POLLNVAL)) {
+                    if (write_set) { FD_SET(fd, write_set); ready_events++; }
+                }
+            }
+            if (pfds[i].events & POLLPRI) {
+                if (pfds[i].revents & (POLLPRI | POLLERR | POLLHUP | POLLNVAL)) {
+                    if (except_set) { FD_SET(fd, except_set); ready_events++; }
+                }
+            }
+        }
+    } else if (rc < 0) {
+        return EIO;
+    }
+
+    *num_events = ready_events;
     return 0;
 }
 

@@ -41,6 +41,7 @@ static process_t* current_process[MAX_CPUS_SCHED] = {0}; // Per-CPU
 static uint32_t next_pid = 0;
 static void *free_kernel_stack_later[MAX_CPUS_SCHED] = {0};
 static uint64_t free_pml4_later[MAX_CPUS_SCHED] = {0};
+static bool free_pml4_later_free_mapped[MAX_CPUS_SCHED] = {false};
 static spinlock_t runqueue_lock = SPINLOCK_INIT;
 static uint32_t next_cpu_assign = 1; 
 
@@ -442,6 +443,7 @@ process_t* process_create_elf(const char* filepath, const char* args_str, bool t
     new_proc->kill_pending = false;
     new_proc->exited = false;
     new_proc->exit_status = 0;
+    new_proc->is_cloned_child = false;
     process_init_signal_state(new_proc);
 
     if (parent) {
@@ -693,6 +695,7 @@ uint64_t process_schedule(uint64_t current_rsp) {
 
     void *cleanup_stack = NULL;
     uint64_t cleanup_pml4 = 0;
+    bool cleanup_free_mapped = false;
 
     if (free_kernel_stack_later[my_cpu]) {
         cleanup_stack = free_kernel_stack_later[my_cpu];
@@ -700,7 +703,9 @@ uint64_t process_schedule(uint64_t current_rsp) {
     }
     if (free_pml4_later[my_cpu]) {
         cleanup_pml4 = free_pml4_later[my_cpu];
+        cleanup_free_mapped = free_pml4_later_free_mapped[my_cpu];
         free_pml4_later[my_cpu] = 0;
+        free_pml4_later_free_mapped[my_cpu] = false;
     }
 
     process_t *cur = current_process[my_cpu];
@@ -711,8 +716,8 @@ uint64_t process_schedule(uint64_t current_rsp) {
         // Perform cleanup outside the lock
         if (cleanup_stack) kfree(cleanup_stack);
         if (cleanup_pml4) {
-            extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
-            paging_destroy_user_pml4_phys(cleanup_pml4);
+            extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys, bool free_mapped);
+            paging_destroy_user_pml4_phys(cleanup_pml4, cleanup_free_mapped);
         }
 
         return current_rsp;
@@ -760,6 +765,7 @@ uint64_t process_schedule(uint64_t current_rsp) {
             if (cur->user_stack_alloc) kfree(cur->user_stack_alloc);
             cur->user_stack_alloc = NULL;
             free_pml4_later[my_cpu] = cur->pml4_phys;
+            free_pml4_later_free_mapped[my_cpu] = cur->is_cloned_child;
             cur->pml4_phys = 0;
             if (cur->parent_pid == 0) process_release_slot(cur);
 
@@ -780,8 +786,8 @@ uint64_t process_schedule(uint64_t current_rsp) {
             spinlock_release_irqrestore(&runqueue_lock, rflags);
             if (cleanup_stack) kfree(cleanup_stack);
             if (cleanup_pml4) {
-                extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
-                paging_destroy_user_pml4_phys(cleanup_pml4);
+                extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys, bool free_mapped);
+                paging_destroy_user_pml4_phys(cleanup_pml4, cleanup_free_mapped);
             }
 
             return next_rsp;
@@ -817,8 +823,8 @@ uint64_t process_schedule(uint64_t current_rsp) {
 
             if (cleanup_stack) kfree(cleanup_stack);
             if (cleanup_pml4) {
-                extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
-                paging_destroy_user_pml4_phys(cleanup_pml4);
+                extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys, bool free_mapped);
+                paging_destroy_user_pml4_phys(cleanup_pml4, cleanup_free_mapped);
             }
 
             return current_rsp;
@@ -848,8 +854,8 @@ uint64_t process_schedule(uint64_t current_rsp) {
     spinlock_release_irqrestore(&runqueue_lock, rflags);
     if (cleanup_stack) kfree(cleanup_stack);
     if (cleanup_pml4) {
-        extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
-        paging_destroy_user_pml4_phys(cleanup_pml4);
+        extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys, bool free_mapped);
+        paging_destroy_user_pml4_phys(cleanup_pml4, cleanup_free_mapped);
     }
 
     return next_rsp;
@@ -984,7 +990,7 @@ void process_terminate_with_status(process_t *to_delete, int status) {
     
     // Free the process's page table structure
     if (to_delete->pml4_phys && to_delete->is_user) {
-        paging_destroy_user_pml4_phys(to_delete->pml4_phys);
+        paging_destroy_user_pml4_phys(to_delete->pml4_phys, to_delete->is_cloned_child);
     }
     
     // Free the physical memory occupied by the executable binary
@@ -1180,16 +1186,16 @@ int process_exec_replace_current(registers_t *regs, const char* filepath, const 
     size_t elf_load_size = 0;
     uint64_t entry_point = elf_load(filepath, new_pml4, &elf_load_size, proc);
     if (entry_point == 0) {
-        extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
-        paging_destroy_user_pml4_phys(new_pml4);
+        extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys, bool free_mapped);
+        paging_destroy_user_pml4_phys(new_pml4, true);
         return -1;
     }
 
     size_t user_stack_size = 262144;
     void* stack = kmalloc_aligned(user_stack_size, 4096);
     if (!stack) {
-        extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
-        paging_destroy_user_pml4_phys(new_pml4);
+        extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys, bool free_mapped);
+        paging_destroy_user_pml4_phys(new_pml4, true);
         return -1;
     }
 
@@ -1287,17 +1293,25 @@ int process_exec_replace_current(registers_t *regs, const char* filepath, const 
     current_user_sp -= 1 * sizeof(uint64_t);
     uint64_t *user_argc = (uint64_t *)args_buf;
     user_argc[0] = (uint64_t)argc;
-
-    if (proc->user_stack_alloc) {
-        kfree(proc->user_stack_alloc);
-    }
-    if (proc->pml4_phys) {
-        extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
-        paging_destroy_user_pml4_phys(proc->pml4_phys);
-    }
+    uint64_t old_pml4 = proc->pml4_phys;
+    void *old_stack = proc->user_stack_alloc;
 
     proc->pml4_phys = new_pml4;
     proc->user_stack_alloc = stack;
+
+    // Switch page tables first before reclaiming the old ones
+    paging_switch_directory(new_pml4);
+
+    if (old_stack) {
+        kfree(old_stack);
+    }
+    if (old_pml4) {
+        extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys, bool free_mapped);
+        paging_destroy_user_pml4_phys(old_pml4, proc->is_cloned_child);
+    }
+    proc->fs_base = 0;
+    wrmsr(MSR_FS_BASE, 0);
+    proc->is_cloned_child = false;
     proc->used_memory = elf_load_size + user_stack_size + 65536;
     proc->heap_start = 0x20000000;
     proc->heap_end = 0x20000000;
@@ -1343,8 +1357,6 @@ int process_exec_replace_current(registers_t *regs, const char* filepath, const 
     regs->r14 = 0;
     regs->r15 = 0;
     regs->rbp = 0;
-
-    paging_switch_directory(proc->pml4_phys);
     return 0;
 }
 
@@ -1392,6 +1404,7 @@ process_t* process_duplicate(registers_t *parent_regs) {
     child->is_terminal_proc = parent->is_terminal_proc;
     child->kill_pending = false;
     child->used_memory = parent->used_memory;
+    child->is_cloned_child = true;
     
     extern void *memcpy(void *dest, const void *src, size_t n);
     memcpy(child->cwd, parent->cwd, 1024);
@@ -1416,20 +1429,21 @@ process_t* process_duplicate(registers_t *parent_regs) {
         return NULL;
     }
 
-    child->kernel_stack_alloc = kmalloc_aligned(32768, 32768);
+    size_t stack_size = (uint64_t)parent->kernel_stack - (uint64_t)parent->kernel_stack_alloc;
+    child->kernel_stack_alloc = kmalloc_aligned(stack_size, stack_size);
     if (!child->kernel_stack_alloc) {
-        extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys);
-        paging_destroy_user_pml4_phys(child->pml4_phys);
+        extern void paging_destroy_user_pml4_phys(uint64_t pml4_phys, bool free_mapped);
+        paging_destroy_user_pml4_phys(child->pml4_phys, true);
         child->pml4_phys = 0;
         child->pid = 0xFFFFFFFF;
         spinlock_release_irqrestore(&runqueue_lock, rflags);
         return NULL;
     }
-    child->kernel_stack = (uint64_t)child->kernel_stack_alloc + 32768;
+    child->kernel_stack = (uint64_t)child->kernel_stack_alloc + stack_size;
     child->user_stack_alloc = NULL;
 
     // Copy kernel stack content
-    memcpy(child->kernel_stack_alloc, parent->kernel_stack_alloc, 32768);
+    memcpy(child->kernel_stack_alloc, parent->kernel_stack_alloc, stack_size);
 
     // Calculate RSP offset
     uint64_t parent_stack_base = (uint64_t)parent->kernel_stack_alloc;
