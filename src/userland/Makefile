@@ -151,6 +151,13 @@ $(BIN_DIR)/st.elf: $(SDK_DIR)/lib/libX11.a $(SDK_DIR)/lib/libXau.a $(SDK_DIR)/li
 # ---------------------------------------------------------------------------
 $(MLIBC_LIB): $(MLIBC_CROSS_FILE)
 	@echo "[MLIBC] Checking meson configuration..."
+	@libgcc_path="$$( $(CC) -print-libgcc-file-name )"; \
+	if [ ! -f "$$libgcc_path" ]; then \
+		echo "[MLIBC] error: libgcc.a missing (got '$$libgcc_path')."; \
+		echo "[MLIBC] hint: rebuild/install your cross toolchain with target libgcc."; \
+		echo "[MLIBC] e.g. 'make all-gcc all-target-libgcc && make install-gcc install-target-libgcc'"; \
+		exit 1; \
+	fi
 	@if [ ! -f $(MLIBC_BUILD_DIR)/build.ninja ]; then \
 		echo "[MLIBC] Running meson setup..."; \
 		meson setup \
