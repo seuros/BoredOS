@@ -9,21 +9,8 @@
 #include "process.h"
 #include "tty.h"
 #include "../core/kutils.h"
-
-typedef struct {
-    void *address;
-    uint32_t width;
-    uint32_t height;
-    uint32_t pitch;
-    uint16_t bpp;
-    uint8_t red_mask_size;
-    uint8_t red_mask_shift;
-    uint8_t green_mask_size;
-    uint8_t green_mask_shift;
-    uint8_t blue_mask_size;
-    uint8_t blue_mask_shift;
-} vfs_framebuffer_info_t;
-extern vfs_framebuffer_info_t graphics_get_fb_params(void);
+#include "../graphics/graphics.h"
+typedef framebuffer_info_t vfs_framebuffer_info_t;
 
 
 
@@ -553,7 +540,6 @@ int vfs_write(vfs_file_t *file, const void *buf, int size) {
 
     return file->mount->ops->write(file->mount->fs_private, file->fs_handle, buf, size);
 }
-
 int vfs_ioctl(vfs_file_t *file, uint64_t request, void *arg) {
     if (!file || !file->valid || !file->mount) return -1;
     
@@ -573,8 +559,31 @@ int vfs_ioctl(vfs_file_t *file, uint64_t request, void *arg) {
             
             vfs_framebuffer_info_t fb = graphics_get_fb_params();
             
+            serial_write("[vfs_ioctl] Framebuffer request=");
+            serial_write_hex(request);
+            serial_write(" arg=");
+            serial_write_hex((uint64_t)arg);
+            serial_write(" fb_addr=");
+            serial_write_hex((uint64_t)fb.address);
+            serial_write(" fb_w=");
+            serial_write_num(fb.width);
+            serial_write(" fb_h=");
+            serial_write_num(fb.height);
+            serial_write(" fb_bpp=");
+            serial_write_num(fb.bpp);
+            serial_write("\n");
+            
             // Validate framebuffer is initialized
             if (!fb.address || fb.width == 0 || fb.height == 0 || fb.bpp == 0) {
+                serial_write("[vfs_ioctl] Validation failed! fb.address=");
+                serial_write_hex((uint64_t)fb.address);
+                serial_write(" fb.width=");
+                serial_write_num(fb.width);
+                serial_write(" fb.height=");
+                serial_write_num(fb.height);
+                serial_write(" fb.bpp=");
+                serial_write_num(fb.bpp);
+                serial_write("\n");
                 return -1;
             }
             

@@ -170,19 +170,17 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF) userland
 	@cp $(SRC_DIR)/userland/cli/third_party/tcc/libtcc1.a $(BUILD_DIR)/initrd/usr/lib/
 	@cp $(SRC_DIR)/userland/cli/third_party/tcc/include/*.h $(BUILD_DIR)/initrd/usr/lib/tcc/include/
 	@cp $(SRC_DIR)/userland/sdk/lib/libboredos.a $(BUILD_DIR)/initrd/usr/lib/
-	@cp $(SRC_DIR)/userland/mlibc/build/libc.a $(BUILD_DIR)/initrd/usr/lib/
-	@cp $(SRC_DIR)/userland/mlibc/build/libc.a $(BUILD_DIR)/initrd/usr/lib/libm.a
+	@cp $(SRC_DIR)/userland/sdk/lib/libboredos.a $(BUILD_DIR)/initrd/usr/lib/libc.a
+	@cp $(SRC_DIR)/userland/sdk/lib/libboredos.a $(BUILD_DIR)/initrd/usr/lib/libm.a
+	@x86_64-elf-strip -S $(BUILD_DIR)/initrd/usr/lib/libboredos.a
 	@x86_64-elf-strip -S $(BUILD_DIR)/initrd/usr/lib/libc.a
 	@x86_64-elf-strip -S $(BUILD_DIR)/initrd/usr/lib/libm.a
-	@cp $(SRC_DIR)/userland/mlibc/build/sysdeps/boredos/crt1.o $(BUILD_DIR)/initrd/usr/lib/crt1.o
+	@cp $(SRC_DIR)/userland/bin/crt0.o $(BUILD_DIR)/initrd/usr/lib/crt0.o
+	@cp $(SRC_DIR)/userland/bin/crt1.o $(BUILD_DIR)/initrd/usr/lib/crt1.o
 	@cp $(SRC_DIR)/userland/bin/crti.o $(BUILD_DIR)/initrd/usr/lib/crti.o
 	@cp $(SRC_DIR)/userland/bin/crtn.o $(BUILD_DIR)/initrd/usr/lib/crtn.o
-	@printf "$(YELLOW)[COPY]$(RESET) mlibc headers...\n"
-	@if [ -d $(SRC_DIR)/userland/mlibc/build/mlibc-headers ]; then \
-		cp -r $(SRC_DIR)/userland/mlibc/build/mlibc-headers/usr/include/. $(BUILD_DIR)/initrd/usr/include/; \
-	fi
-	@cp $(SRC_DIR)/userland/sdk/include/*.h $(BUILD_DIR)/initrd/usr/include/ 2>/dev/null || true
-	@cp $(SRC_DIR)/userland/sdk/include/sys/*.h $(BUILD_DIR)/initrd/usr/include/sys/ 2>/dev/null || true
+	@printf "$(YELLOW)[COPY]$(RESET) SDK headers...\n"
+	@cp -r $(SRC_DIR)/userland/sdk/include/. $(BUILD_DIR)/initrd/usr/include/
 	@cp $(SRC_DIR)/userland/stb_image.h $(BUILD_DIR)/initrd/usr/include/
 
 	@printf "$(YELLOW)[COPY]$(RESET) Wallpapers...\n"

@@ -17,6 +17,17 @@ void wait_queue_init(wait_queue_head_t *h) {
 void wait_queue_add(wait_queue_head_t *h, wait_queue_entry_t *entry) {
     if (!h || !entry) return;
     uint64_t flags = spinlock_acquire_irqsave(&h->lock);
+    
+    // Prevent duplicate addition to avoid circular list corruption
+    wait_queue_entry_t *curr = h->head;
+    while (curr) {
+        if (curr == entry) {
+            spinlock_release_irqrestore(&h->lock, flags);
+            return;
+        }
+        curr = curr->next;
+    }
+    
     entry->next = h->head;
     h->head = entry;
     spinlock_release_irqrestore(&h->lock, flags);
@@ -33,6 +44,7 @@ void wait_queue_remove(wait_queue_head_t *h, wait_queue_entry_t *entry) {
         if (curr == entry) {
             if (prev) prev->next = curr->next;
             else h->head = curr->next;
+            curr->next = NULL; // Clear next pointer for safety
             break;
         }
         prev = curr;

@@ -223,7 +223,6 @@ int sys_ioctl(int fd, unsigned long request, void *arg) {
     return (int)syscall4(SYS_FS, FS_CMD_IOCTL, (uint64_t)fd, (uint64_t)request, (uint64_t)arg);
 }
 
-
 int sys_sigpending(unsigned long *set) {
     return (int)syscall3(SYS_SYSTEM, SYSTEM_CMD_SIGPENDING, (uint64_t)set, 0);
 }
@@ -419,26 +418,5 @@ int sys_munmap(void *addr, size_t length) {
 
 int sys_futex(uint32_t *uaddr, int op, uint32_t val) {
     return (int)syscall3(SYS_FUTEX, (uint64_t)uaddr, (uint64_t)(uint32_t)op, (uint64_t)val);
-}
-
-void itoa(int n, char *buf) {
-    if (n == 0) {
-        buf[0] = '0'; buf[1] = 0; return;
-    }
-    int i = 0;
-    int sign = n < 0;
-    if (sign) n = -n;
-    while (n > 0) {
-        buf[i++] = (n % 10) + '0';
-        n /= 10;
-    }
-    if (sign) buf[i++] = '-';
-    buf[i] = 0;
-    // Reverse
-    for (int j = 0; j < i / 2; j++) {
-        char t = buf[j];
-        buf[j] = buf[i - 1 - j];
-        buf[i - 1 - j] = t;
-    }
 }
 

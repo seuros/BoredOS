@@ -857,9 +857,6 @@ uint64_t process_schedule(uint64_t current_rsp) {
     paging_switch_directory(current_process[my_cpu]->pml4_phys);
     wrmsr(MSR_FS_BASE, current_process[my_cpu]->fs_base);
     
-    // Clean up any stale poll entries
-    poll_cleanup(current_process[my_cpu]);
-    
     current_process[my_cpu]->ticks++;
     uint64_t next_rsp = current_process[my_cpu]->rsp;
 
