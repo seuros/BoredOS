@@ -27,6 +27,7 @@ jobs:
           sudo ln -sf /usr/bin/x86_64-linux-gnu-gcc /usr/local/bin/x86_64-elf-gcc
           sudo ln -sf /usr/bin/x86_64-linux-gnu-ld  /usr/local/bin/x86_64-elf-ld
           sudo ln -sf /usr/bin/x86_64-linux-gnu-ar  /usr/local/bin/x86_64-elf-ar
+          sudo ln -sf /usr/bin/x86_64-linux-gnu-strip  /usr/local/bin/x86_64-elf-strip
 
       - name: Build ISO
         run: make -j4
