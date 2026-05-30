@@ -738,3 +738,58 @@ __attribute__((weak)) int fcntl(int fd, int cmd, ...) {
             return -1;
     }
 }
+
+__attribute__((weak)) int poll(struct pollfd *fds, int nfds, int timeout) {
+    int i;
+    int ret;
+    struct pollfd *k_fds = NULL;
+    struct pollfd stack_fds[128];
+
+    _b_fd_init();
+
+    if (nfds < 0) {
+        errno = EINVAL;
+        return -1;
+    }
+
+    if (nfds == 0 || !fds) {
+        return sys_poll(fds, nfds, timeout);
+    }
+
+    if (nfds <= 128) {
+        k_fds = stack_fds;
+    } else {
+        k_fds = (struct pollfd *)malloc(sizeof(struct pollfd) * nfds);
+        if (!k_fds) {
+            errno = ENOMEM;
+            return -1;
+        }
+    }
+
+    for (i = 0; i < nfds; i++) {
+        k_fds[i].events = fds[i].events;
+        k_fds[i].revents = 0;
+
+        int fd = fds[i].fd;
+        fd_handle_t *h = _b_get_handle(fd);
+        if (h && h->type == HANDLE_KERNEL_FD) {
+            k_fds[i].fd = h->kernel_fd;
+        } else {
+            k_fds[i].fd = fd;
+        }
+    }
+
+    ret = sys_poll(k_fds, nfds, timeout);
+
+    if (ret >= 0) {
+        for (i = 0; i < nfds; i++) {
+            fds[i].revents = k_fds[i].revents;
+        }
+    }
+
+    if (k_fds != stack_fds) {
+        free(k_fds);
+    }
+
+    return ret;
+}

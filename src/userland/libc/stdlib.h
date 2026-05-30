@@ -41,7 +41,9 @@ char* getcwd(char *buf, int size);
 char *realpath(const char *path, char *resolved_path);
 int access(const char *pathname, int mode);
 void sleep(int ms);
+int atexit(void (*func)(void));
 void exit(int status);
 void _exit(int status);
+
 
 #endif

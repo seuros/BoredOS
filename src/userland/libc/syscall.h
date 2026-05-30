@@ -243,6 +243,7 @@ struct pollfd {
 #define POLLNVAL   0x0020
 
 int sys_poll(struct pollfd *fds, int nfds, int timeout);
+int poll(struct pollfd *fds, int nfds, int timeout);
 
 typedef struct {
     char name[256];

@@ -381,6 +381,21 @@ void sleep(int ms) {
     sys_system(SYSTEM_CMD_SLEEP, ms, 0, 0, 0);
 }
 
+static void (*g_atexit_handlers[32])(void);
+static int g_atexit_count = 0;
+
+int atexit(void (*func)(void)) {
+    if (g_atexit_count >= 32) return -1;
+    g_atexit_handlers[g_atexit_count++] = func;
+    return 0;
+}
+
 void exit(int status) {
+    for (int i = g_atexit_count - 1; i >= 0; i--) {
+        if (g_atexit_handlers[i]) {
+            g_atexit_handlers[i]();
+        }
+    }
     sys_exit(status);
 }
+

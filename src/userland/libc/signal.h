@@ -18,6 +18,9 @@ struct sigaction {
 #define SIGKILL 9
 #define SIGTERM 15
 #define SIGINT 2
+#define SIGUSR1 10
+#define SIGUSR2 12
+#define SIGCHLD 17
 
 #define SIG_BLOCK 0
 #define SIG_UNBLOCK 1
