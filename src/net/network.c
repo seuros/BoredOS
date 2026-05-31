@@ -22,6 +22,8 @@ static struct netif nic_netif;
 static int lwip_initialized = 0;
 
 static struct tcp_pcb *current_tcp_pcb = NULL;
+static struct tcp_pcb *listen_tcp_pcb = NULL;
+static struct tcp_pcb *accepted_tcp_pcb = NULL;
 static struct pbuf *tcp_recv_queue = NULL;
 static int tcp_connect_done = 0;
 static int tcp_connect_error = 0;
@@ -312,7 +314,10 @@ int network_tcp_close(void) {
         tcp_recv_queue = NULL;
     }
     if (current_tcp_pcb) {
-        tcp_abort(current_tcp_pcb);
+        err_t err = tcp_close(current_tcp_pcb);
+        if (err != ERR_OK) {
+            tcp_abort(current_tcp_pcb);
+        }
         current_tcp_pcb = NULL;
     }
     tcp_closed = 0;
@@ -320,6 +325,97 @@ int network_tcp_close(void) {
     tcp_connect_error = 0;
     spinlock_release_irqrestore(&network_lock, flags);
     return 0;
+}
+
+static err_t tcp_accept_callback(void *arg, struct tcp_pcb *new_pcb, err_t err) {
+    (void)arg;
+    if (err != ERR_OK || new_pcb == NULL) {
+        return ERR_VAL;
+    }
+    
+    if (current_tcp_pcb) {
+        tcp_abort(current_tcp_pcb);
+        current_tcp_pcb = NULL;
+    }
+    
+    if (tcp_recv_queue) {
+        pbuf_free(tcp_recv_queue);
+        tcp_recv_queue = NULL;
+    }
+    
+    current_tcp_pcb = new_pcb;
+    tcp_closed = 0;
+    tcp_connect_done = 1;
+    tcp_connect_error = 0;
+    
+    extern uint32_t process_get_current_pid(void);
+    tcp_owner_pid = process_get_current_pid();
+    
+    tcp_recv(new_pcb, tcp_recv_callback);
+    tcp_err(new_pcb, tcp_err_callback);
+    
+    accepted_tcp_pcb = new_pcb;
+    
+    return ERR_OK;
+}
+
+int network_tcp_listen(uint16_t port) {
+    if (!lwip_initialized) return -1;
+    
+    uint64_t flags = spinlock_acquire_irqsave(&network_lock);
+    if (listen_tcp_pcb) {
+        tcp_close(listen_tcp_pcb);
+        listen_tcp_pcb = NULL;
+    }
+    
+    struct tcp_pcb *pcb = tcp_new();
+    if (!pcb) {
+        spinlock_release_irqrestore(&network_lock, flags);
+        return -1;
+    }
+    
+    err_t err = tcp_bind(pcb, IP_ADDR_ANY, port);
+    if (err != ERR_OK) {
+        tcp_abort(pcb);
+        spinlock_release_irqrestore(&network_lock, flags);
+        return -1;
+    }
+    
+    listen_tcp_pcb = tcp_listen(pcb);
+    if (!listen_tcp_pcb) {
+        tcp_abort(pcb);
+        spinlock_release_irqrestore(&network_lock, flags);
+        return -1;
+    }
+    
+    tcp_accept(listen_tcp_pcb, tcp_accept_callback);
+    
+    spinlock_release_irqrestore(&network_lock, flags);
+    return 0;
+}
+
+int network_tcp_accept(void) {
+    if (!lwip_initialized || !listen_tcp_pcb) return -1;
+    
+    uint64_t flags = spinlock_acquire_irqsave(&network_lock);
+    accepted_tcp_pcb = NULL;
+    spinlock_release_irqrestore(&network_lock, flags);
+    
+    uint32_t start = sys_now();
+    asm volatile("sti");
+    while (1) {
+        network_process_frames();
+        flags = spinlock_acquire_irqsave(&network_lock);
+        if (accepted_tcp_pcb != NULL) {
+            spinlock_release_irqrestore(&network_lock, flags);
+            return 0;
+        }
+        spinlock_release_irqrestore(&network_lock, flags);
+        k_delay(10);
+        if (sys_now() - start >= 50) {
+            return -2;
+        }
+    }
 }
 
 static ip_addr_t dns_resolved_ip;

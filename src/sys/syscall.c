@@ -1852,6 +1852,18 @@ static uint64_t sys_cmd_tcp_recv_nb(const syscall_args_t *args) {
   return (uint64_t)network_tcp_recv_nb(buf, max_len);
 }
 
+static uint64_t sys_cmd_tcp_listen(const syscall_args_t *args) {
+  uint16_t port = (uint16_t)args->arg2;
+  extern int network_tcp_listen(uint16_t port);
+  return (uint64_t)network_tcp_listen(port);
+}
+
+static uint64_t sys_cmd_tcp_accept(const syscall_args_t *args) {
+  (void)args;
+  extern int network_tcp_accept(void);
+  return (uint64_t)network_tcp_accept();
+}
+
 static uint64_t sys_cmd_set_resolution(const syscall_args_t *args) {
   uint16_t req_w = (uint16_t)args->arg2;
   uint16_t req_h = (uint16_t)args->arg3;
@@ -2566,6 +2578,8 @@ static const syscall_handler_fn sys_cmd_table[SYS_CMD_TABLE_SIZE] = {
     [SYSTEM_CMD_SET_FONT] = sys_cmd_set_font,
     [SYSTEM_CMD_SET_RAW_MODE] = sys_cmd_set_raw_mode,
     [SYSTEM_CMD_TCP_RECV_NB] = sys_cmd_tcp_recv_nb,
+    [SYSTEM_CMD_TCP_LISTEN] = sys_cmd_tcp_listen,
+    [SYSTEM_CMD_TCP_ACCEPT] = sys_cmd_tcp_accept,
     [SYSTEM_CMD_SET_RESOLUTION] = sys_cmd_set_resolution,
     [SYSTEM_CMD_NETWORK_GET_NIC_NAME] = sys_cmd_network_get_nic_name,
     [SYSTEM_CMD_PARALLEL_RUN] = sys_cmd_parallel_run,
