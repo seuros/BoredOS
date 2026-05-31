@@ -1361,7 +1361,7 @@ void handle_client_message(int fd, surface_t **surf_ptr) {
             surf->layer = p->layer;
             surf->flags = p->flags;
             surf->state_flags = 0;
-            surf->mapped = true;
+            surf->mapped = false;
             surf->resize_last_request_ms = 0;
 
             // Generate unique shm name containing Client fd and surface ID
@@ -1463,6 +1463,9 @@ void handle_client_message(int fd, surface_t **surf_ptr) {
             uint32_t surf_id = *(uint32_t *)buffer;
             surface_t *surf = surface_find(surf_id);
             if (surf) {
+                if (!surf->mapped) {
+                    surf->mapped = true;
+                }
                 // If there's a pending resized canvas committed, finalize swap
                 if (surf->pending_pixels) {
                     // Unmap old shm surface
