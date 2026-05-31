@@ -67,6 +67,9 @@ static void ps2_update_leds(void) {
 uint64_t keyboard_handler(registers_t *regs) {
     uint8_t scancode = inb(0x60);
 
+    // Push raw scancode to active TTY (for /dev/keyboardX)
+    tty_push_key(tty_get_active_id(), scancode);
+
     keyboard_event_t ev;
     if (keyboard_handle_set1_scancode(scancode, &ev)) {
         // Update LEDs if a lock key state changed
@@ -83,9 +86,6 @@ uint64_t keyboard_handler(registers_t *regs) {
                 return (uint64_t)regs;
             }
         }
-
-        // Push raw scancode to active TTY (for /dev/keyboardX)
-        tty_push_key(tty_get_active_id(), scancode);
 
         // Push processed character to active TTY (for /dev/ttyX) only if text mode is active (not KD_GRAPHICS)
         if (ev.pressed && tty_get_blit_enabled()) {
