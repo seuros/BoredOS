@@ -4,12 +4,45 @@ on:
     branches:
       - 'main'
   schedule:
-    - cron: "0 0 * * *"
+    - cron: '*/30 * * * *'
   workflow_dispatch:
 permissions:
   contents: write
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    outputs:
+      should_build: ${{ steps.check.outputs.should_build }}
+    steps:
+      - name: Check for recent BoredOS org pushes
+        id: check
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" != "schedule" ]]; then
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          cutoff=$(date -u -d '15 minutes ago' +%s)
+          push_count=$(curl -fsS \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/orgs/BoredOS/events?per_page=100" \
+            | jq --argjson cutoff "$cutoff" '[.[] | select(.type == "PushEvent" and ((.created_at | fromdateiso8601) >= $cutoff))] | length')
+
+          if [[ "$push_count" -gt 0 ]]; then
+            echo "Detected $push_count recent push event(s) in BoredOS."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No recent commits found in BoredOS."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          fi
+
   build-and-release:
+    needs: preflight
+    if: needs.preflight.outputs.should_build == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
