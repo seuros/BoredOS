@@ -2,7 +2,7 @@
 
 This page documents the current syscall surface in BoredOS as implemented in:
 - `src/sys/syscall.h` (kernel command IDs)
-- `src/userland/libc/syscall.h` (userland wrappers)
+- `external/libc/include/syscall.h` (userland wrappers)
 
 Use libc wrappers when possible instead of calling raw syscall numbers directly.
 
@@ -21,7 +21,7 @@ Use libc wrappers when possible instead of calling raw syscall numbers directly.
 | 60 | `SYS_EXIT` (kernel header) | Internal kernel syscall number map |
 
 Notes:
-- Some numbers differ between kernel and userland headers for historical reasons. For app code, rely on wrapper functions in `src/userland/libc/syscall.c`.
+- Some numbers differ between kernel and userland headers for historical reasons. For app code, rely on wrapper functions in `external/libc/src/syscall.c`.
 - `SYS_FS` and `SYS_SYSTEM` are command multiplexers.
 
 ## FS Command IDs (`SYS_FS`)
@@ -204,7 +204,7 @@ Unlike simpler systems that use periodic polling, BoredOS uses a **Wait Queue** 
 
 This ensures that idle applications consume **zero CPU cycles** while waiting for input.
 
-## Common Wrapper API (`src/userland/libc/syscall.h`)
+## Common Wrapper API (`external/libc/include/syscall.h`)
 
 Typical wrappers used by apps:
 - Process/system: `sys_exit`, `sys_yield`, `sys_system` (with `SYSTEM_CMD_SLEEP`), `sys_spawn`, `sys_exec`, `sys_waitpid`

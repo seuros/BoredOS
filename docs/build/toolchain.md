@@ -18,7 +18,7 @@ To build BoredOS, you need the following tools:
     -   `x86_64-elf-ld`: The linker to combine object files into the final `boredos.elf` kernel and userland binaries.
 
 2.  **NASM**:
-    -   Required to compile the `.asm` files in `src/arch/` and `src/userland/crt0.asm`. It formats the output as `elf64` objects to be linked alongside the C code.
+    -   Required to compile the `.asm` files in `src/arch/` and `external/libc/src/crt0.asm`. It formats the output as `elf64` objects to be linked alongside the C code.
 
 3.  **xorriso**:
     -   A specialized tool to create ISO 9660 filesystem images.

@@ -9,12 +9,7 @@ edk2-vars.fd
 qemu-debug.log
 boredos.dump
 
-# Userland
-src/userland/bin/
-
-# mlibc build output 
-src/userland/mlibc/build/
-src/userland/mlibc/headers-build/
+# Userland build outputs moved to external repositories
 
 # Temporary files
 **/.DS_Store
@@ -26,8 +21,6 @@ src/userland/mlibc/headers-build/
 
 # Others
 .gitignore
-src/userland/cli/third_party/tcc/tcc.elf
-src/userland/sdk/include/*
 
 # External Repositories
 /external/

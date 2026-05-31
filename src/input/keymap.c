@@ -25,7 +25,6 @@ HOW TO ADD A NEW LAYOUT:
 2. Create a new keyboard_layout_t instance in keymap.c, filling the entries array with the appropriate codepoints for each keycode and modifier combination. Use 0 for unused combinations.
 3. Add the new layout to the g_layouts array in keymap.c
 4. (Optional) If your layout has dead keys, add the appropriate entries to the g_compose_table array in keymap.c, defining how dead keys combine with base characters to produce composed characters.
-5. Add the layout to /src/userland/gui/settings.c in init_settings_widgets() in the *keyboard_opts[] array and increment the count in widget_dropdown_init for drop_keyboard.
 */
 
 // QWERTY LAYOUT US (DEFAULT)

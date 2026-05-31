@@ -10,7 +10,7 @@ This page is the high-level map; detailed API references now live in dedicated p
 
 ## SDK Structure
 
-Primary headers are in `src/userland/libc/`.
+Primary headers are in `external/libc/include/`.
 
 - `stdlib.h`, `string.h`, `stdio.h`, `unistd.h`: core libc surface
 - `syscall.h`: raw syscall wrappers and command constants
@@ -45,7 +45,7 @@ For Direct Framebuffer (Graphics) apps:
 
 ## Build and Packaging
 
-- Add app source under `src/userland/` (CLI, GUI, or games subfolder).
+- Add app source under the appropriate external repository source directory (for example, `external/coreutils/src/`, `external/nova/src/`, or a new `external/<repo>/src/`).
 - Ensure it is included in the userland build rules/targets.
 - Build from repo root with `make`.
 - Built binaries are copied into initrd under `/bin` by the top-level `Makefile`.

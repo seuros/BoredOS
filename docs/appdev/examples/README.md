@@ -25,6 +25,6 @@ The examples are listed in order of increasing complexity. Click on a tutorial t
 ---
 
 > [!TIP]
-> If you want to test these out, simply create a new `.c` file in `src/userland/cli/` (for terminal or command-line graphics apps) or `src/userland/net/` (for network utilities), paste the example code, then run `make clean && make run` from the project root!
+> If you want to test these out, simply create a new `.c` file in an external repository source directory such as `external/coreutils/src/` for terminal apps or `external/netutils/src/` for network utilities, paste the example code, then run `make clean && make run` from the project root!
 
 ---

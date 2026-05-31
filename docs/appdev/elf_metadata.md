@@ -112,7 +112,7 @@ A semicolon-separated list of absolute VFS paths to PNG icons. Up to 4 icons are
 
 ### The `gen_userland_note.sh` Tool
 
-Located at [`tools/gen_userland_note.sh`](../../tools/gen_userland_note.sh), this script is invoked automatically by the `src/userland/Makefile` for every compiled application.
+Located at [`tools/gen_userland_note.sh`](../../tools/gen_userland_note.sh), this script is invoked automatically by the external application build rules for every compiled binary.
 
 **Usage:**
 ```sh
@@ -133,7 +133,7 @@ The script:
 
 ### Makefile Rules
 
-In `src/userland/Makefile`, the following rules handle metadata generation and linking:
+In the external application build rules, the following rules handle metadata generation and linking:
 
 ```make
 # Generate the .note.c for each app from its source annotations
@@ -202,7 +202,7 @@ Both positive (metadata found) and negative (no metadata) results are cached. Th
 
 ## Userspace API
 
-Userspace applications can query the ELF metadata of any `.elf` binary on the VFS through two wrapper functions declared in [`src/userland/libc/syscall.h`](../../src/userland/libc/syscall.h).
+Userspace applications can query the ELF metadata of any `.elf` binary on the VFS through two wrapper functions declared in [`external/libc/include/syscall.h`](../../external/libc/include/syscall.h).
 
 ### The `boredos_app_metadata_t` struct (userland)
 
