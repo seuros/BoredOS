@@ -205,7 +205,7 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF) userland
 	done
 	@printf "$(YELLOW)[COPY]$(RESET) Colloid icons...\n"
 	@for f in $(COLLOID_ICONS); do \
-		src="external/colloid/$$f"; \
+		src="external/colloid/src/$$f"; \
 		if [ -f "$$src" ]; then \
 			printf "  -> $$src\n"; \
 			cp "$$src" $(BUILD_DIR)/initrd/Library/images/icons/colloid/; \
