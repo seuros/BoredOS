@@ -8,23 +8,23 @@ The documentation is split by area so you can go directly to the subsystem you w
 
 | Area | Document | Description |
 | --- | --- | --- |
-| Graphics | [`graphics/framebuffer.md`](architecture/graphics/framebuffer.md) | Framebuffer device (/dev/fb0) architecture, ioctls, seeking, and direct screen memory. |
-| Hardware | [`hardware/input.md`](architecture/hardware/input.md) | Hardware-level input support and device wiring. |
-| Hardware | [`hardware/pci.md`](architecture/hardware/pci.md) | PCI bus management and device enumeration. |
-| Hardware | [`hardware/i2c.md`](architecture/hardware/i2c.md) | I2C bus management and controller drivers. |
-| System | [`ACPI/acpi_interface.md`](architecture/ACPI/acpi_interface.md) | Power management and ACPI hardware discovery. |
-| Input | [`input/keyboard.md`](architecture/input/keyboard.md) | Keyboard input handling and key mapping. |
-| Memory | [`memory/memory.md`](architecture/memory/memory.md) | Memory architecture, paging, and address space layout. |
-| Memory | [`memory/memory_manager.md`](architecture/memory/memory_manager.md) | Memory allocation and management systems. |
-| Network | [`network/network_stack.md`](architecture/network/network_stack.md) | TCP/IP stack design, protocol flow, and packet handling. |
-| Network | [`network/network_drivers.md`](architecture/network/network_drivers.md) | Network driver architecture and interface support. |
-| Storage | [`storage/filesystem.md`](architecture/storage/filesystem.md) | File system structure and storage access. |
-| Storage | [`storage/ahci_drivers.md`](architecture/storage/ahci_drivers.md) | AHCI driver implementation and disk controller support. |
-| System | [`system/core.md`](architecture/system/core.md) | Core kernel architecture and main subsystems. |
-| System | [`system/tty.md`](architecture/system/tty.md) | Virtual terminals, virtual framebuffers, active TTY blitting, and keyboard/mouse multiplexing. |
-| System | [`system/interrupts.md`](architecture/system/interrupts.md) | Interrupt handling and low-level event dispatch. |
-| System | [`system/processes.md`](architecture/system/processes.md) | Process management, scheduling, and execution model. |
-| General | [`versioning.md`](architecture/versioning.md) | Release versioning and project numbering conventions. |
+| Graphics | [`graphics/framebuffer.md`](graphics/framebuffer.md) | Framebuffer device (/dev/fb0) architecture, ioctls, seeking, and direct screen memory. |
+| Hardware | [`hardware/input.md`](hardware/input.md) | Hardware-level input support and device wiring. |
+| Hardware | [`hardware/pci.md`](hardware/pci.md) | PCI bus management and device enumeration. |
+| Hardware | [`hardware/i2c.md`](hardware/i2c.md) | I2C bus management and controller drivers. |
+| System | [`ACPI/acpi_interface.md`](ACPI/acpi_interface.md) | Power management and ACPI hardware discovery. |
+| Input | [`input/keyboard.md`](input/keyboard.md) | Keyboard input handling and key mapping. |
+| Memory | [`memory/memory.md`](memory/memory.md) | Memory architecture, paging, and address space layout. |
+| Memory | [`memory/memory_manager.md`](memory/memory_manager.md) | Memory allocation and management systems. |
+| Network | [`network/network_stack.md`](network/network_stack.md) | TCP/IP stack design, protocol flow, and packet handling. |
+| Network | [`network/network_drivers.md`](network/network_drivers.md) | Network driver architecture and interface support. |
+| Storage | [`storage/filesystem.md`](storage/filesystem.md) | File system structure and storage access. |
+| Storage | [`storage/ahci_drivers.md`](storage/ahci_drivers.md) | AHCI driver implementation and disk controller support. |
+| System | [`system/core.md`](system/core.md) | Core kernel architecture and main subsystems. |
+| System | [`system/tty.md`](system/tty.md) | Virtual terminals, virtual framebuffers, active TTY blitting, and keyboard/mouse multiplexing. |
+| System | [`system/interrupts.md`](system/interrupts.md) | Interrupt handling and low-level event dispatch. |
+| System | [`system/processes.md`](system/processes.md) | Process management, scheduling, and execution model. |
+| General | [`versioning.md`](versioning.md) | Release versioning and project numbering conventions. |
 
 ## Quick start
 
