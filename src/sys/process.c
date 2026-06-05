@@ -420,11 +420,16 @@ process_t* process_create_elf(const char* filepath, const char* args_str, bool t
 
     // Always set up TTY FDs if a TTY is provided
     if (tty_id >= 0) {
-        char tty_path[16];
+        char tty_path[24];
         extern void strcpy(char *dest, const char *src);
         extern void itoa(int n, char *buf);
-        strcpy(tty_path, "/dev/tty");
-        itoa(tty_id + 1, tty_path + 8);
+        if (tty_id >= 1024) {
+            strcpy(tty_path, "/dev/pts/");
+            itoa(tty_id - 1024, tty_path + 9);
+        } else {
+            strcpy(tty_path, "/dev/tty");
+            itoa(tty_id + 1, tty_path + 8);
+        }
         
         vfs_file_t *f = vfs_open(tty_path, "rw");
         if (f) {
@@ -917,9 +922,9 @@ static void process_cleanup_inner(process_t *proc) {
     }
     proc->mmap_allocation_count = 0;
 
-    if (proc->is_terminal_proc) {
-        extern void tty_set_blit_enabled(bool enabled);
-        tty_set_blit_enabled(true);
+    if (proc->is_terminal_proc && proc->tty_id >= 0) {
+        extern void tty_set_blit_enabled_for_id(int id, bool enabled);
+        tty_set_blit_enabled_for_id(proc->tty_id, true);
     }
 
     for (int i = 0; i < MAX_PROCESSES; i++) {

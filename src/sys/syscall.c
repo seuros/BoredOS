@@ -26,6 +26,7 @@
 #include "platform.h"
 #include "smp.h"
 #include "tty.h"
+#include "pty.h"
 #include "unix_socket.h"
 #include "vfs.h"
 #include "wait_queue.h"
@@ -2032,6 +2033,16 @@ static uint64_t sys_cmd_tty_destroy(const syscall_args_t *args) {
   return tty_destroy(tty_id);
 }
 
+static uint64_t sys_cmd_pty_create(const syscall_args_t *args) {
+  (void)args;
+  return (uint64_t)pty_create();
+}
+
+static uint64_t sys_cmd_pty_destroy(const syscall_args_t *args) {
+  int pty_id = (int)args->arg2;
+  return (uint64_t)pty_destroy(pty_id);
+}
+
 static uint64_t sys_cmd_get_elf_metadata(const syscall_args_t *args) {
   const char *path = (const char *)args->arg2;
   boredos_app_metadata_t *out = (boredos_app_metadata_t *)args->arg3;
@@ -2397,6 +2408,8 @@ static const syscall_handler_fn sys_cmd_table[SYS_CMD_TABLE_SIZE] = {
     [SYSTEM_CMD_DISK_RESCAN] = sys_cmd_disk_rescan,
     [SYSTEM_CMD_DISK_REPLACE_KERNEL] = sys_cmd_disk_replace_kernel,
     [SYSTEM_CMD_DISK_SYNC] = sys_cmd_disk_sync,
+    [SYSTEM_CMD_PTY_CREATE] = sys_cmd_pty_create,
+    [SYSTEM_CMD_PTY_DESTROY] = sys_cmd_pty_destroy,
 };
 
 static uint64_t handle_sys_write(const syscall_args_t *args) {

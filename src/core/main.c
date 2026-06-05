@@ -14,6 +14,7 @@
 #include "process.h"
 #include "ps2.h"
 #include "tty.h"
+#include "pty.h"
 
 #include "io.h"
 #include "fat32.h"
@@ -604,6 +605,7 @@ void kmain(void) {
     bootfs_refresh_from_disk();
 
     tty_init();
+    pty_init();
     kconsole_set_active(false);
 
     // Spawn shells for all 10 TTYs

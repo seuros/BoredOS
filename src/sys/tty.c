@@ -2,6 +2,7 @@
 // This software is released under the GNU General Public License v3.0. See LICENSE file for details.
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include "tty.h"
+#include "pty.h"
 #include "spinlock.h"
 #include "wait_queue.h"
 #include "graphics/font.h"
@@ -306,6 +307,10 @@ static void tty_scroll(tty_t *t) {
 }
 
 void tty_write(int id, const char *data, size_t len) {
+    if (pty_is_pty_id(id)) {
+        pty_write_output(id, data, len);
+        return;
+    }
     tty_t *t = tty_get(id);
     if (!t) return;
 
@@ -590,6 +595,7 @@ void tty_push_char(int id, uint8_t c) {
 }
 
 int tty_read_input(int id, char *buf, size_t len) {
+    if (pty_is_pty_id(id)) return pty_read_input(id, buf, len);
     tty_t *t = tty_get(id);
     if (!t) return 0;
     return tty_queue_pop(&t->char_queue, (uint8_t*)buf, len);
@@ -649,6 +655,7 @@ int tty_destroy(int id) {
 }
 
 void tty_write_output(int id, const char *data, size_t len) {
+    if (pty_is_pty_id(id)) { pty_write_output(id, data, len); return; }
     tty_t *t = tty_get(id);
     if (!t) return;
     for (size_t i = 0; i < len; i++) {
@@ -657,12 +664,14 @@ void tty_write_output(int id, const char *data, size_t len) {
 }
 
 int tty_read_output(int id, char *buf, size_t len) {
+    if (pty_is_pty_id(id)) return pty_read_output(id, buf, len);
     tty_t *t = tty_get(id);
     if (!t) return 0;
     return tty_queue_pop(&t->out_queue, (uint8_t*)buf, len);
 }
 
 int tty_write_input(int id, const char *buf, size_t len) {
+    if (pty_is_pty_id(id)) return pty_write_input(id, buf, len);
     tty_t *t = tty_get(id);
     if (!t) return 0;
     for (size_t i = 0; i < len; i++) {
@@ -672,6 +681,7 @@ int tty_write_input(int id, const char *buf, size_t len) {
 }
 
 int tty_set_foreground(int id, int pid) {
+    if (pty_is_pty_id(id)) return pty_set_foreground(id, pid);
     tty_t *t = tty_get(id);
     if (!t) return -1;
     t->fg_pid = pid;
@@ -679,14 +689,20 @@ int tty_set_foreground(int id, int pid) {
 }
 
 int tty_get_foreground(int id) {
+    if (pty_is_pty_id(id)) return pty_get_foreground(id);
     tty_t *t = tty_get(id);
     if (!t) return -1;
     return t->fg_pid;
 }
 
-void tty_set_blit_enabled(bool enabled) {
-    tty_t *t = tty_get(g_active_tty);
+void tty_set_blit_enabled_for_id(int id, bool enabled) {
+    if (pty_is_pty_id(id)) return;
+    tty_t *t = tty_get(id);
     if (t) t->blit_enabled = enabled;
+}
+
+void tty_set_blit_enabled(bool enabled) {
+    tty_set_blit_enabled_for_id(g_active_tty, enabled);
 }
 
 bool tty_get_blit_enabled(void) {
@@ -707,6 +723,7 @@ void tty_blit_active(void) {
 
 
 int tty_poll(int id, struct poll_table *pt) {
+    if (pty_is_pty_id(id)) return pty_poll(id, pt);
     tty_t *t = tty_get(id);
     if (!t) return 0;
     

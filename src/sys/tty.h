@@ -81,6 +81,7 @@ int tty_get_foreground(int id);
 
 void tty_blit_active(void);
 void tty_set_blit_enabled(bool enabled);
+void tty_set_blit_enabled_for_id(int id, bool enabled);
 bool tty_get_blit_enabled(void);
 struct poll_table;
 int tty_poll(int id, struct poll_table *pt);

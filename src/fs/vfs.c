@@ -324,6 +324,25 @@ vfs_file_t* vfs_open(const char *path, const char *mode) {
             }
         }
         
+        if (vfs_starts_with(devname, "pts/")) {
+            int idx = atoi(devname + 4);
+            extern bool pty_is_pty_id(int id);
+            extern void* pty_get(int pty_id);
+            int pty_id = 1024 + idx;
+            void *p = pty_get(pty_id);
+            if (p) {
+                vfs_file_t *vf = vfs_alloc_file();
+                if (vf) {
+                    vf->mount = &mounts[0];
+                    vf->fs_handle = (void*)(uintptr_t)pty_id;
+                    vf->is_device = true;
+                    vf->device_type = DEVICE_TYPE_TTY;
+                    spinlock_release_irqrestore(&vfs_lock, flags);
+                    return vf;
+                }
+            }
+        }
+        
         // Handle Keyboard devices: /dev/keyboard (active) or /dev/keyboardX
         if (vfs_starts_with(devname, "keyboard")) {
             int id = 0;
@@ -893,7 +912,13 @@ int vfs_poll(vfs_file_t *file, struct poll_table *pt) {
     if (!file || !file->valid || !file->mount || !file->mount->active) return POLLNVAL;
     if (file->is_device) {
         if (file->device_type == DEVICE_TYPE_TTY || file->device_type == DEVICE_TYPE_KEYBOARD || file->device_type == DEVICE_TYPE_MOUSE) {
-            tty_t *t = tty_get((int)(uintptr_t)file->fs_handle);
+            int handle_id = (int)(uintptr_t)file->fs_handle;
+            extern bool pty_is_pty_id(int id);
+            extern int pty_poll(int pty_id, struct poll_table *pt);
+            if (file->device_type == DEVICE_TYPE_TTY && pty_is_pty_id(handle_id)) {
+                return pty_poll(handle_id, pt);
+            }
+            tty_t *t = tty_get(handle_id);
             if (!t) return POLLNVAL;
             
             tty_queue_t *q = NULL;

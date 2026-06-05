@@ -114,7 +114,9 @@ typedef enum {
     SYSTEM_CMD_GET_ELF_PRIMARY_IMAGE = 77,
     SYSTEM_CMD_TTY_GET_ID = 78,
     SYSTEM_CMD_SET_FS_BASE = 79,
-    SYSTEM_CMD_FORK = 80
+    SYSTEM_CMD_FORK = 80,
+    SYSTEM_CMD_PTY_CREATE = 82,
+    SYSTEM_CMD_PTY_DESTROY = 83
 } system_cmd_t;
 
 void syscall_init(void);
