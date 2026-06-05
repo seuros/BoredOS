@@ -528,10 +528,8 @@ void kmain(void) {
                     
                     tar_parse(decomp_buf, decomp_size);
                     
-                    kfree(decomp_buf);
-                    
-                    g_bootfs_state.initrd_ptr = NULL;
-                    g_bootfs_state.initrd_size = 0;
+                    g_bootfs_state.initrd_ptr = decomp_buf;
+                    g_bootfs_state.initrd_size = decomp_size;
                 } else {
                     tar_parse(mod->address, mod->size);
                     g_bootfs_state.initrd_ptr = mod->address;
