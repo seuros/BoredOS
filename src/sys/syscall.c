@@ -1524,14 +1524,7 @@ static uint64_t sys_cmd_shutdown(const syscall_args_t *args) {
   k_shutdown();
   return 0;
 }
-
-static uint64_t sys_cmd_beep(const syscall_args_t *args) {
-  int freq = (int)args->arg2;
-  int ms = (int)args->arg3;
-  extern void k_beep(int freq, int ms);
-  k_beep(freq, ms);
-  return 0;
-}
+ 
 
 static uint64_t sys_cmd_get_mem_info(const syscall_args_t *args) {
   uint64_t *out = (uint64_t *)args->arg2;
@@ -2356,7 +2349,6 @@ static const syscall_handler_fn sys_cmd_table[SYS_CMD_TABLE_SIZE] = {
     [SYSTEM_CMD_RTC_GET] = sys_cmd_rtc_get,
     [SYSTEM_CMD_REBOOT] = sys_cmd_reboot,
     [SYSTEM_CMD_SHUTDOWN] = sys_cmd_shutdown,
-    [SYSTEM_CMD_BEEP] = sys_cmd_beep,
     [SYSTEM_CMD_GET_MEM_INFO] = sys_cmd_get_mem_info,
     [SYSTEM_CMD_GET_TICKS] = sys_cmd_get_ticks,
     [SYSTEM_CMD_PCI_LIST] = sys_cmd_pci_list,

@@ -11,6 +11,7 @@
 #include "tty.h"
 #include "../core/kutils.h"
 #include "../graphics/graphics.h"
+#include "dev/pcsk.h"
 typedef framebuffer_info_t vfs_framebuffer_info_t;
 
 
@@ -409,6 +410,20 @@ vfs_file_t* vfs_open(const char *path, const char *mode) {
                     spinlock_release_irqrestore(&vfs_lock, flags);
                     return vf;
                 }
+            }
+        }
+
+        // Handle PC speaker device: /dev/pcsk 
+        if (vfs_strcmp(devname, "pcsk") == 0) {
+            vfs_file_t *vf = vfs_alloc_file();
+            if (vf) {
+                vf->mount = &mounts[0];
+                vf->fs_handle = (void*)0;
+                vf->is_device = true;
+                vf->device_type = DEVICE_TYPE_PCSPKR;
+                vf->position = 0;
+                spinlock_release_irqrestore(&vfs_lock, flags);
+                return vf;
             }
         }
 
@@ -832,6 +847,10 @@ int vfs_ioctl(vfs_file_t *file, uint64_t request, void *arg) {
             }
             return -1;
         }
+        else if (file->device_type == DEVICE_TYPE_PCSPKR) {
+            extern int pcsk_ioctl(void *file_handle, uint64_t request, void *arg);
+            return pcsk_ioctl(file->fs_handle, request, arg);
+        }
         return -1;
     }
     
@@ -1082,6 +1101,15 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max, int off
                 count++;
             }
 
+            // PC speaker device
+            if (count < max) {
+                vfs_strcpy(entries[count].name, "pcsk");
+                entries[count].size = 0;
+                entries[count].is_directory = 0;
+                count++;
+            }
+
+
             // Framebuffer device
             if (count < max) {
                 vfs_strcpy(entries[count].name, "fb0");
@@ -1242,6 +1270,7 @@ bool vfs_exists(const char *path) {
         if (vfs_strcmp(dev, "keyboard") == 0 || vfs_starts_with(dev, "keyboard")) return true;
         if (vfs_strcmp(dev, "mouse") == 0 || vfs_starts_with(dev, "mouse")) return true;
         if (vfs_starts_with(dev, "tty")) return true;
+        if (vfs_strcmp(dev, "pcsk") == 0) return true;
         if (vfs_starts_with(dev, "shm/")) return true;
         if (disk_get_by_name(dev)) return true;
     }

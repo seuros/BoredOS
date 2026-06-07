@@ -70,7 +70,6 @@ Notes:
 | 11 | `SYSTEM_CMD_RTC_GET` | Read RTC datetime |
 | 12 | `SYSTEM_CMD_REBOOT` | Reboot machine |
 | 13 | `SYSTEM_CMD_SHUTDOWN` | Power off machine |
-| 14 | `SYSTEM_CMD_BEEP` | PC speaker beep |
 | 15 | `SYSTEM_CMD_GET_MEM_INFO` | Return total/used memory |
 | 16 | `SYSTEM_CMD_GET_TICKS` | Return scheduler tick count |
 | 32 | `SYSTEM_CMD_RTC_SET` | Set RTC datetime |
