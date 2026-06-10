@@ -2867,7 +2867,7 @@ uint64_t syscall_handler_c(registers_t *regs) {
   // Check for context-switching syscalls
   if (syscall_num == 0 || syscall_num == 60) { // EXIT
     int status = (int)regs->rdi;
-    return process_terminate_current_with_status((status & 0xff) << 8);
+    return process_terminate_current_with_status((status & 0xff) << 8, (uint64_t)regs);
   }
 
   if (syscall_num == 10) { // KILL
@@ -2879,7 +2879,7 @@ uint64_t syscall_handler_c(registers_t *regs) {
       return (uint64_t)regs;
     }
     if (target_pid == 0xFFFFFFFF || target_pid == current->pid) {
-      return process_terminate_current();
+      return process_terminate_current((uint64_t)regs);
     } else {
       process_t *target = process_get_by_pid(target_pid);
       if (target) {

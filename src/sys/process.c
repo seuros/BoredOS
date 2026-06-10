@@ -15,6 +15,7 @@
 #include "lapic.h"
 #include "unix_socket.h"
 #include "../core/kutils.h"
+#include "../arch/fpu.h"
 
 #define MSR_FS_BASE 0xC0000100
 
@@ -299,10 +300,10 @@ process_t* process_create(void (*entry_point)(void), bool is_user) {
         for (int i = 0; i < 15; i++) *(--stack_ptr) = 0;
         
         // Push 512 bytes for SSE/FPU state (fxsave_region)
-        // Zero it out for safety
         stack_ptr = (uint64_t*)((uint64_t)stack_ptr - 512);
-        for (int i = 0; i < 512/8; i++) stack_ptr[i] = 0;
-        
+        asm volatile("fninit");
+        asm volatile("fxsave %0" : "=m"(*(uint8_t *)stack_ptr));
+
         new_proc->kernel_stack = (uint64_t)kernel_stack + 32768;
         new_proc->rsp = (uint64_t)stack_ptr;
     } else {
@@ -322,16 +323,14 @@ process_t* process_create(void (*entry_point)(void), bool is_user) {
         
         // Push 512 bytes for SSE/FPU state (fxsave_region)
         stack_ptr = (uint64_t*)((uint64_t)stack_ptr - 512);
-        // Zero it out for safety
-        for (int i = 0; i < 512/8; i++) stack_ptr[i] = 0;
+        asm volatile("fninit");
+        asm volatile("fxsave %0" : "=m"(*(uint8_t *)stack_ptr));
 
         new_proc->kernel_stack = (uint64_t)kernel_stack + 32768;
         new_proc->rsp = (uint64_t)stack_ptr;
         kfree(user_stack); // Unused for kernel threads
     }
 
-    // Initialize FPU state for new process
-    asm volatile("fninit");
     new_proc->fpu_initialized = true;
     
     new_proc->cpu_affinity = 0; // Non-ELF processes stay on BSP
@@ -809,6 +808,9 @@ uint64_t process_schedule(uint64_t current_rsp) {
                 paging_destroy_user_pml4_phys(cleanup_pml4, cleanup_free_mapped);
             }
 
+            if (next_rsp != current_rsp) {
+                fpu_switch(current_rsp, next_rsp);
+            }
             return next_rsp;
         }
     }
@@ -881,6 +883,9 @@ uint64_t process_schedule(uint64_t current_rsp) {
         paging_destroy_user_pml4_phys(cleanup_pml4, cleanup_free_mapped);
     }
 
+    if (next_rsp != current_rsp) {
+        fpu_switch(current_rsp, next_rsp);
+    }
     return next_rsp;
 }
 
@@ -1040,7 +1045,7 @@ void process_terminate_with_status(process_t *to_delete, int status) {
     spinlock_release_irqrestore(&runqueue_lock, rflags);
 }
 
-uint64_t process_terminate_current_with_status(int status) {
+uint64_t process_terminate_current_with_status(int status, uint64_t current_rsp) {
     uint64_t rflags = spinlock_acquire_irqsave(&runqueue_lock);
 
     uint32_t my_cpu = smp_this_cpu_id();
@@ -1115,11 +1120,15 @@ uint64_t process_terminate_current_with_status(int status) {
     
     uint64_t next_rsp = current_process[my_cpu]->rsp;
     spinlock_release_irqrestore(&runqueue_lock, rflags);
+
+    if (next_rsp != current_rsp) {
+        fpu_switch(current_rsp, next_rsp);
+    }
     return next_rsp;
 }
 
-uint64_t process_terminate_current(void) {
-    return process_terminate_current_with_status(0);
+uint64_t process_terminate_current(uint64_t current_rsp) {
+    return process_terminate_current_with_status(0, current_rsp);
 }
 
 int process_reap(uint32_t caller_pid, uint32_t pid, int *status_out) {
@@ -1470,6 +1479,8 @@ process_t* process_duplicate(registers_t *parent_regs) {
     }
     child->kernel_stack = (uint64_t)child->kernel_stack_alloc + stack_size;
     child->user_stack_alloc = NULL;
+
+    fpu_save_to(parent_regs->fxsave_region);
 
     // Copy kernel stack content
     memcpy(child->kernel_stack_alloc, parent->kernel_stack_alloc, stack_size);

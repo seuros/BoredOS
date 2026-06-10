@@ -82,7 +82,7 @@ uint64_t exception_handler_c(registers_t *regs) {
         int sig = 11; // Default to SIGSEGV
         if (vector == 0) sig = 8; // SIGFPE
         else if (vector == 6) sig = 4; // SIGILL
-        return process_terminate_current_with_status(128 + sig);
+        return process_terminate_current_with_status(128 + sig, (uint64_t)regs);
     }
 
     // Kernel mode exception
