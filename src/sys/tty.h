@@ -30,9 +30,16 @@ typedef struct {
 } tty_queue_t;
 
 typedef struct {
+    uint32_t codepoint;
+    uint32_t fg;
+    uint32_t bg;
+} tty_cell_t;
+
+typedef struct {
     int id;
     bool used;
-    uint32_t *vfb;
+    tty_cell_t *grid;
+    bool dirty;
     int width, height;
     int cursor_x, cursor_y;
     bool cursor_visible;

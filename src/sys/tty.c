@@ -15,6 +15,7 @@
 static tty_t g_ttys[TTY_COUNT];
 static int g_active_tty = 0;
 static spinlock_t g_tty_global_lock = SPINLOCK_INIT;
+static uint32_t *g_active_tty_vfb = NULL;
 
 #include "../core/kutils.h"
 
@@ -52,12 +53,18 @@ void tty_init(void) {
     graphics_mark_screen_dirty();
     graphics_flip_buffer();
 
+    g_active_tty_vfb = (uint32_t *)graphics_get_fb_backing_params().address;
+    for (size_t j = 0; j < vfb_size / 4; j++) g_active_tty_vfb[j] = 0xFF000000;
+    int cols = w / 8;
+    int rows = h / 8;
+
     for (int i = 0; i < TTY_COUNT; i++) {
         g_ttys[i].id = i;
         g_ttys[i].used = true;
         g_ttys[i].width = w;
         g_ttys[i].height = h;
-        g_ttys[i].vfb = (uint32_t *)kmalloc(vfb_size);
+        g_ttys[i].grid = (tty_cell_t *)kmalloc(cols * rows * sizeof(tty_cell_t));
+        g_ttys[i].dirty = true;
         g_ttys[i].cursor_x = 0;
         g_ttys[i].cursor_y = 0;
         g_ttys[i].cursor_visible = true;
@@ -73,8 +80,11 @@ void tty_init(void) {
         g_ttys[i].utf8_codepoint = 0;
         g_ttys[i].lock = SPINLOCK_INIT;
         
-        memset(g_ttys[i].vfb, 0, vfb_size);
-        for (size_t j = 0; j < vfb_size / 4; j++) g_ttys[i].vfb[j] = 0xFF000000;
+        for (int j = 0; j < cols * rows; j++) {
+            g_ttys[i].grid[j].codepoint = ' ';
+            g_ttys[i].grid[j].fg = 0xFFFFFFFF;
+            g_ttys[i].grid[j].bg = 0xFF000000;
+        }
         tty_queue_init(&g_ttys[i].key_queue);
         tty_queue_init(&g_ttys[i].mouse_queue);
         tty_queue_init(&g_ttys[i].out_queue);
@@ -93,6 +103,7 @@ void tty_switch(int id) {
     if (id < 0 || id >= TTY_COUNT) return;
     uint64_t flags = spinlock_acquire_irqsave(&g_tty_global_lock);
     g_active_tty = id;
+    g_ttys[id].dirty = true;
     spinlock_release_irqrestore(&g_tty_global_lock, flags);
 }
 
@@ -101,18 +112,23 @@ int tty_get_active_id(void) {
 }
 
 static void tty_draw_rect(tty_t *t, int x, int y, int w, int h, uint32_t color) {
-    if (x < 0) { w += x; x = 0; }
-    if (y < 0) { h += y; y = 0; }
-    if (x + w > t->width) w = t->width - x;
-    if (y + h > t->height) h = t->height - y;
-    if (w <= 0 || h <= 0) return;
-
-    for (int i = y; i < y + h; i++) {
-        uint32_t *row = &t->vfb[i * t->width + x];
-        for (int j = 0; j < w; j++) {
-            row[j] = color;
+    int cols = t->width / 8;
+    int rows = t->height / 8;
+    int start_col = x / 8;
+    int start_row = y / 8;
+    int num_cols = w / 8;
+    int num_rows = h / 8;
+    for (int r = start_row; r < start_row + num_rows; r++) {
+        if (r < 0 || r >= rows) continue;
+        for (int c = start_col; c < start_col + num_cols; c++) {
+            if (c < 0 || c >= cols) continue;
+            int idx = r * cols + c;
+            t->grid[idx].codepoint = ' ';
+            t->grid[idx].fg = t->fg_color;
+            t->grid[idx].bg = color;
         }
     }
+    t->dirty = true;
 }
 
 static bool get_box_drawing_glyph(uint32_t codepoint, uint8_t glyph[8]) {
@@ -240,8 +256,8 @@ static bool get_box_drawing_glyph(uint32_t codepoint, uint8_t glyph[8]) {
     return false;
 }
 
-static void tty_draw_char(tty_t *t, int x, int y, uint32_t codepoint, uint32_t fg, uint32_t bg) {
-    if (x < 0 || x + 8 > t->width || y < 0 || y + 8 > t->height) return;
+static void tty_render_char_to_vfb(uint32_t *dest, int width, int height, int x, int y, uint32_t codepoint, uint32_t fg, uint32_t bg) {
+    if (x < 0 || x + 8 > width || y < 0 || y + 8 > height) return;
     
     uint8_t custom_glyph[8];
     const uint8_t *glyph;
@@ -254,7 +270,7 @@ static void tty_draw_char(tty_t *t, int x, int y, uint32_t codepoint, uint32_t f
     }
     
     for (int row = 0; row < 8; row++) {
-        uint32_t *vfb_row = &t->vfb[(y + row) * t->width + x];
+        uint32_t *vfb_row = &dest[(y + row) * width + x];
         uint8_t glyph_row = glyph[row];
         for (int col = 0; col < 8; col++) {
             if ((glyph_row >> (7 - col)) & 1) {
@@ -266,16 +282,36 @@ static void tty_draw_char(tty_t *t, int x, int y, uint32_t codepoint, uint32_t f
     }
 }
 
+static void tty_render_grid_to_vfb(tty_t *t, uint32_t *dest) {
+    int cols = t->width / 8;
+    int rows = t->height / 8;
+    for (int r = 0; r < rows; r++) {
+        for (int c = 0; c < cols; c++) {
+            tty_cell_t cell = t->grid[r * cols + c];
+            tty_render_char_to_vfb(dest, t->width, t->height, c * 8, r * 8, cell.codepoint, cell.fg, cell.bg);
+        }
+    }
+}
+static void tty_write_cell(tty_t *t, int col, int row, uint32_t codepoint, uint32_t fg, uint32_t bg) {
+    int cols = t->width / 8;
+    int rows = t->height / 8;
+    if (col < 0 || col >= cols || row < 0 || row >= rows) return;
+    int idx = row * cols + col;
+    t->grid[idx].codepoint = codepoint;
+    t->grid[idx].fg = fg;
+    t->grid[idx].bg = bg;
+    t->dirty = true;
+}
 
 static uint32_t g_cursor_backup[8 * 8];
 
-static void tty_composite_cursor_vfb(tty_t *t) {
+static void tty_composite_cursor_vfb(tty_t *t, uint32_t *dest) {
     if (!t->cursor_visible) return;
     if (t->cursor_x < 0 || t->cursor_x + 8 > t->width) return;
     if (t->cursor_y < 0 || t->cursor_y + 8 > t->height) return;
 
     for (int r = 0; r < 8; r++) {
-        uint32_t *row = &t->vfb[(t->cursor_y + r) * t->width + t->cursor_x];
+        uint32_t *row = &dest[(t->cursor_y + r) * t->width + t->cursor_x];
         for (int c = 0; c < 8; c++) {
             g_cursor_backup[r * 8 + c] = row[c];
             row[c] = (~row[c]) | 0xFF000000; 
@@ -283,13 +319,13 @@ static void tty_composite_cursor_vfb(tty_t *t) {
     }
 }
 
-static void tty_restore_cursor_vfb(tty_t *t) {
+static void tty_restore_cursor_vfb(tty_t *t, uint32_t *dest) {
     if (!t->cursor_visible) return;
     if (t->cursor_x < 0 || t->cursor_x + 8 > t->width) return;
     if (t->cursor_y < 0 || t->cursor_y + 8 > t->height) return;
 
     for (int r = 0; r < 8; r++) {
-        uint32_t *row = &t->vfb[(t->cursor_y + r) * t->width + t->cursor_x];
+        uint32_t *row = &dest[(t->cursor_y + r) * t->width + t->cursor_x];
         for (int c = 0; c < 8; c++) {
             row[c] = g_cursor_backup[r * 8 + c];
         }
@@ -297,13 +333,16 @@ static void tty_restore_cursor_vfb(tty_t *t) {
 }
 
 static void tty_scroll(tty_t *t) {
-    int font_h = 8;
-    int vfb_size = t->width * t->height * 4;
-    
-    memmove(t->vfb, t->vfb + (font_h * t->width), vfb_size - (font_h * t->width * 4));
-    tty_draw_rect(t, 0, t->height - font_h, t->width, font_h, t->bg_color);
-    
-    t->cursor_y -= font_h;
+    int cols = t->width / 8;
+    int rows = t->height / 8;
+    memmove(t->grid, t->grid + cols, (rows - 1) * cols * sizeof(tty_cell_t));
+        for (int col = 0; col < cols; col++) {
+        t->grid[(rows - 1) * cols + col].codepoint = ' ';
+        t->grid[(rows - 1) * cols + col].fg = t->fg_color;
+        t->grid[(rows - 1) * cols + col].bg = t->bg_color;
+    }
+    t->cursor_y -= 8;
+    t->dirty = true;
 }
 
 void tty_write(int id, const char *data, size_t len) {
@@ -313,10 +352,7 @@ void tty_write(int id, const char *data, size_t len) {
     }
     tty_t *t = tty_get(id);
     if (!t) return;
-
     uint64_t flags = spinlock_acquire_irqsave(&t->lock);
-    
-    int old_cursor_y = t->cursor_y;
     int font_w = 8;
     int font_h = 8;
     
@@ -530,7 +566,6 @@ void tty_write(int id, const char *data, size_t len) {
             t->esc_state = 1;
             continue;
         }
-
         if (c == '\n') {
             t->cursor_x = 0;
             t->cursor_y += font_h;
@@ -544,8 +579,7 @@ void tty_write(int id, const char *data, size_t len) {
                 tty_draw_rect(t, t->cursor_x, t->cursor_y, font_w, font_h, t->bg_color);
             }
         } else {
-            // Draw 8x8 bitmap font
-            tty_draw_char(t, t->cursor_x, t->cursor_y, c, t->fg_color, t->bg_color);
+            tty_write_cell(t, t->cursor_x / 8, t->cursor_y / 8, c, t->fg_color, t->bg_color);
             t->cursor_x += font_w;
         }
 
@@ -704,7 +738,6 @@ void tty_set_blit_enabled_for_id(int id, bool enabled) {
 void tty_set_blit_enabled(bool enabled) {
     tty_set_blit_enabled_for_id(g_active_tty, enabled);
 }
-
 bool tty_get_blit_enabled(void) {
     tty_t *t = tty_get(g_active_tty);
     if (!t) return true;
@@ -713,14 +746,18 @@ bool tty_get_blit_enabled(void) {
 
 void tty_blit_active(void) {
     tty_t *t = tty_get(g_active_tty);
-    if (!t || !t->blit_enabled) return;
-
+    if (!t || !t->blit_enabled || !g_active_tty_vfb) return;
+    uint64_t flags = spinlock_acquire_irqsave(&t->lock);
+    if (t->dirty) {
+        tty_render_grid_to_vfb(t, g_active_tty_vfb);
+        t->dirty = false;
+    }
     extern void graphics_copy_buffer(uint32_t *src);
-    tty_composite_cursor_vfb(t);
-    graphics_copy_buffer(t->vfb);
-    tty_restore_cursor_vfb(t);
+    tty_composite_cursor_vfb(t, g_active_tty_vfb);
+    graphics_copy_buffer(g_active_tty_vfb);
+    tty_restore_cursor_vfb(t, g_active_tty_vfb);
+    spinlock_release_irqrestore(&t->lock, flags);
 }
-
 
 int tty_poll(int id, struct poll_table *pt) {
     if (pty_is_pty_id(id)) return pty_poll(id, pt);
