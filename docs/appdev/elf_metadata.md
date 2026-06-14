@@ -87,7 +87,7 @@ Developers declare metadata using **special comment annotations** at the top of 
 
 ```c
 // BOREDOS_APP_DESC: My application's short description.
-// BOREDOS_APP_ICONS: /Library/images/icons/colloid/my-icon.png
+// BOREDOS_APP_ICONS: /Library/images/icons/serenityicons/32x32/my-icon.png
 ```
 
 ### `BOREDOS_APP_DESC`
@@ -99,11 +99,11 @@ A single-line description of the application. Truncated to 191 characters.
 A semicolon-separated list of absolute VFS paths to PNG icons. Up to 4 icons are supported. The **first** entry is used as the primary icon displayed in the File Explorer and on the Desktop.
 
 ```c
-// BOREDOS_APP_ICONS: /Library/images/icons/colloid/primary.png;/Library/images/icons/colloid/alternate.png
+// BOREDOS_APP_ICONS: /Library/images/icons/serenityicons/32x32/primary.png;/Library/images/icons/serenityicons/32x32/alternate.png
 ```
 
 > [!TIP]
-> If no `BOREDOS_APP_ICONS` annotation is provided, the build tool falls back to `/Library/images/icons/colloid/xterm.png`.
+> If no `BOREDOS_APP_ICONS` annotation is provided, the build tool falls back to `/Library/images/icons/serenityicons/32x32/app-terminal.png`.
 > If no `BOREDOS_APP_DESC` annotation is provided, the build tool uses `"BoredOS userspace application."`.
 
 ---

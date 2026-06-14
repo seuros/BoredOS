@@ -1206,6 +1206,15 @@ bool vfs_delete(const char *path) {
     if (normalized[0] == '/' && normalized[1] == '\0') return false;
     if (vfs_strcmp(normalized, "/dev") == 0) return false;
 
+    if (vfs_starts_with(normalized, "/dev/shm/")) {
+        const char *shm_name = normalized + 9;
+        if (shm_name[0] != '\0') {
+            extern void shm_unlink(const char *name);
+            shm_unlink(shm_name);
+            return true;
+        }
+    }
+
     const char *rel_path = NULL;
     vfs_mount_t *mount = vfs_resolve_mount(normalized, &rel_path);
 

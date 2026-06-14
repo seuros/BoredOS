@@ -31,18 +31,6 @@ define PRINT_STEP
 	@printf "$(BLUE)============================================================$(RESET)\n"
 endef
 
-# DOCK_COLLOID_ICONS = (removed)
-DOCK_COLLOID_ICONS = 
-
-USERLAND_COLLOID_ICONS = $(shell { \
-	find external -type f -name '*.c' ! -path '*/third_party/*' -exec grep -hoE '"[^"]+\.png"' {} + 2>/dev/null; \
-	find external -type f -name '*.h' ! -path '*/third_party/*' ! -name 'stb_image.h' -exec grep -hoE '"[^"]+\.png"' {} + 2>/dev/null; \
-} | sed 's/"//g' | sed 's@.*/@@' | sort -u)
-USERLAND_METADATA_ICONS = $(shell { \
-	find external -type f -name '*.c' -exec sed -n 's@^[[:space:]]*//[[:space:]]*BOREDOS_APP_ICONS:[[:space:]]*@@p' {} + 2>/dev/null; \
-} | tr ';' '\n' | sed 's@.*/@@' | sed '/^[[:space:]]*$$/d' | sort -u)
-COLLOID_ICONS = $(sort $(DOCK_COLLOID_ICONS) $(USERLAND_COLLOID_ICONS) $(USERLAND_METADATA_ICONS) xterm.png)
-
 C_SOURCES := $(shell find $(SRC_DIR) -type f -name '*.c' \
                 ! -path '$(SRC_DIR)/userland/*' \
                 ! -path '*/third_party/lwip/netif/slipif.c')
@@ -156,7 +144,8 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF) userland packages
 	@printf "$(YELLOW)[INITRD]$(RESET) Creating directory structure...\n"
 	mkdir -p $(BUILD_DIR)/initrd/bin
 	mkdir -p $(BUILD_DIR)/initrd/Library/images/Wallpapers
-	mkdir -p $(BUILD_DIR)/initrd/Library/images/icons/colloid
+	mkdir -p $(BUILD_DIR)/initrd/Library/images/icons/serenityicons/16x16
+	mkdir -p $(BUILD_DIR)/initrd/Library/images/icons/serenityicons/32x32
 	mkdir -p $(BUILD_DIR)/initrd/Library/Fonts/Emoji
 	mkdir -p $(BUILD_DIR)/initrd/Library/DOOM
 	mkdir -p $(BUILD_DIR)/initrd/Library/conf
@@ -218,14 +207,10 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF) userland packages
 	@cp build/sdk/lib/crtn.o $(BUILD_DIR)/initrd/usr/lib/crtn.o
 	@cp -r build/sdk/include/. $(BUILD_DIR)/initrd/usr/include/
 
-	@printf "$(YELLOW)[COPY]$(RESET) Colloid icons...\n"
-	@for f in $(COLLOID_ICONS); do \
-		src="external/colloid/src/$$f"; \
-		if [ -f "$$src" ]; then \
-			printf "  -> $$src\n"; \
-			cp "$$src" $(BUILD_DIR)/initrd/Library/images/icons/colloid/; \
-		fi \
-	done
+	@printf "$(YELLOW)[COPY]$(RESET) Serenity icons (16x16)...\n"
+	@cp external/serenityicons/16x16/*.png $(BUILD_DIR)/initrd/Library/images/icons/serenityicons/16x16/
+	@printf "$(YELLOW)[COPY]$(RESET) Serenity icons (32x32)...\n"
+	@cp external/serenityicons/32x32/*.png $(BUILD_DIR)/initrd/Library/images/icons/serenityicons/32x32/
 
 	@printf "$(YELLOW)[COPY]$(RESET) Branding assets...\n"
 	@cp -r branding/* $(BUILD_DIR)/initrd/Library/images/branding/

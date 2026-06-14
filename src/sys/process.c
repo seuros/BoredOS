@@ -14,6 +14,7 @@
 #include "smp.h"
 #include "lapic.h"
 #include "unix_socket.h"
+#include "shm.h"
 #include "../core/kutils.h"
 #include "../arch/fpu.h"
 
@@ -81,6 +82,12 @@ static void process_release_slot(process_t *p) {
     for (int i = 0; i < 16; i++) p->mmap_allocations[i] = NULL;
     p->sbrk_allocation_count = 0;
     for (int i = 0; i < 64; i++) p->sbrk_allocations[i] = NULL;
+    p->shm_mapping_count = 0;
+    for (int i = 0; i < 32; i++) {
+        p->shm_mappings[i].addr = 0;
+        p->shm_mappings[i].length = 0;
+        p->shm_mappings[i].seg = NULL;
+    }
     process_init_signal_state(p);
 }
 
@@ -386,7 +393,7 @@ process_t* process_create_elf(const char* filepath, const char* args_str, bool t
 
     process_t *parent = process_get_current();
     if (parent) {
-        for (int i = 0; i < MAX_PROCESS_FDS; i++) {
+        for (int i = 0; i < 3; i++) {
             if (parent->fds[i]) {
                 if (parent->fd_kind[i] == PROC_FD_KIND_FILE) {
                     process_fd_file_ref_t *ref = (process_fd_file_ref_t *)parent->fds[i];
@@ -456,6 +463,12 @@ process_t* process_create_elf(const char* filepath, const char* args_str, bool t
     new_proc->mmap_current = 0x50000000;
     new_proc->mmap_allocation_count = 0;
     for (int i = 0; i < 16; i++) new_proc->mmap_allocations[i] = NULL;
+    new_proc->shm_mapping_count = 0;
+    for (int i = 0; i < 32; i++) {
+        new_proc->shm_mappings[i].addr = 0;
+        new_proc->shm_mappings[i].length = 0;
+        new_proc->shm_mappings[i].seg = NULL;
+    }
     new_proc->is_terminal_proc = terminal_proc;
     new_proc->tty_id = tty_id;
     new_proc->kill_pending = false;
@@ -937,6 +950,15 @@ static void process_cleanup_inner(process_t *proc) {
     }
     proc->mmap_allocation_count = 0;
 
+    // Cleanup SHM mappings
+    for (uint32_t i = 0; i < proc->shm_mapping_count; i++) {
+        if (proc->shm_mappings[i].seg) {
+            shm_unref((shm_segment_t *)proc->shm_mappings[i].seg);
+            proc->shm_mappings[i].seg = NULL;
+        }
+    }
+    proc->shm_mapping_count = 0;
+
     if (proc->is_terminal_proc && proc->tty_id >= 0) {
         extern void tty_set_blit_enabled_for_id(int id, bool enabled);
         tty_set_blit_enabled_for_id(proc->tty_id, true);
@@ -1366,6 +1388,18 @@ int process_exec_replace_current(registers_t *regs, const char* filepath, const 
     proc->mmap_current = 0x50000000;
     proc->mmap_allocation_count = 0;
     for (int i = 0; i < 16; i++) proc->mmap_allocations[i] = NULL;
+    for (uint32_t i = 0; i < proc->shm_mapping_count; i++) {
+        if (proc->shm_mappings[i].seg) {
+            shm_unref((shm_segment_t *)proc->shm_mappings[i].seg);
+            proc->shm_mappings[i].seg = NULL;
+        }
+    }
+    proc->shm_mapping_count = 0;
+    for (int i = 0; i < 32; i++) {
+        proc->shm_mappings[i].addr = 0;
+        proc->shm_mappings[i].length = 0;
+        proc->shm_mappings[i].seg = NULL;
+    }
     proc->sleep_until = 0;
     process_init_signal_state(proc);
 
@@ -1533,6 +1567,18 @@ process_t* process_duplicate(registers_t *parent_regs) {
     for (int i = 0; i < 16; i++) child->mmap_allocations[i] = NULL;
     child->sbrk_allocation_count = 0;
     for (int i = 0; i < 64; i++) child->sbrk_allocations[i] = NULL;
+    child->shm_mapping_count = parent->shm_mapping_count;
+    for (uint32_t i = 0; i < parent->shm_mapping_count; i++) {
+        child->shm_mappings[i] = parent->shm_mappings[i];
+        if (child->shm_mappings[i].seg) {
+            shm_ref((shm_segment_t *)child->shm_mappings[i].seg);
+        }
+    }
+    for (uint32_t i = parent->shm_mapping_count; i < 32; i++) {
+        child->shm_mappings[i].addr = 0;
+        child->shm_mappings[i].length = 0;
+        child->shm_mappings[i].seg = NULL;
+    }
     child->mmap_current = parent->mmap_current;
 
     // Link the child process to the scheduling queue

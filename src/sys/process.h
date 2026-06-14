@@ -137,6 +137,14 @@ typedef struct process {
     void *sbrk_allocations[64];
     uint32_t sbrk_allocation_count;
 
+    // Tracking for shm mappings to allow full reclamation on exit.
+    struct {
+        uint64_t addr;
+        uint64_t length;
+        void *seg;
+    } shm_mappings[32];
+    uint32_t shm_mapping_count;
+
     poll_wtable_t poll_table;
 } __attribute__((aligned(16))) process_t;
 

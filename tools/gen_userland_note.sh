@@ -16,7 +16,7 @@ MAX_DESC=191
 MAX_IMAGE_PATH=159
 MAX_IMAGES=4
 
-DEFAULT_ICON_PATH="/Library/images/icons/colloid/xterm.png"
+DEFAULT_ICON_PATH="/Library/images/icons/serenityicons/32x32/app-terminal.png"
 DEFAULT_DESC="BoredOS userspace application."
 
 escape_c_string() {

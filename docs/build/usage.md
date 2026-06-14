@@ -32,7 +32,7 @@ graph TD
     C --> E[Compile Modular Apps passing BOREDOS_SDK]
     D --> F[Assemble Initrd directory structure]
     E --> F
-    F --> G[Dynamic Colloid Icon Scanning]
+    F --> G[Serenity Icon Staging]
     G --> H[Create initrd.tar.lz4]
     H --> I[Limine bios-install & xorriso bootable ISO]
 ```
@@ -43,14 +43,7 @@ graph TD
 2. **Integrated Multi-Repo Compilation**:
    - The root Makefile builds all other external application repositories in parallel, explicitly passing `BOREDOS_SDK=$(abspath build/sdk)` to their sub-Makefiles.
    - The application sub-Makefiles detect this local SDK path, link immediately against it, and skip all local fetching or SDK rebuild routines, providing massive speedups.
-3. **Dynamic Asset Resolution (The Colloid System)**:
-   - The Colloid icon pack contains thousands of icons, which are too heavy to include in the compressed kernel RAM disk (`initrd`).
-   - The root `Makefile` dynamically parses C/C++ source code files in all compiled external folders at build time to identify which `.png` files are actually referenced:
-     ```make
-     USERLAND_COLLOID_ICONS = $(shell find external -type f -name '*.c' ! -path '*/third_party/*' -exec grep -hoE '"[^"]+\.png"' {} + | sed 's/"//g')
-     ```
-   - Only the referenced icons are copied from the decoupled `external/colloid/` directory into `Library/images/icons/colloid/` in the initrd, keeping the RAM disk size tiny.
-4. **Single-Pass Dispatch Target**:
+3. **Single-Pass Dispatch Target**:
    - Targets like `make run` and `make run-hd` resolve platform-specific emulation rules at parse-time using GNU Make conditionals (`ifeq ($(HOST_OS),Darwin) run: run-mac ...`), completely preventing duplicate sub-make execution of `fetch_external.sh`.
 
 ---

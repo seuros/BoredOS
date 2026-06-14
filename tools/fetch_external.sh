@@ -19,12 +19,11 @@ lua|https://github.com/boredos/lua.git|main
 tcc|https://github.com/boredos/tcc.git|main
 netutils|https://github.com/boredos/netutils.git|main
 bart|https://github.com/boredos/bart.git|main
-colloid|https://github.com/boredos/colloid.git|main
+serenityicons|https://github.com/BoredOS/serenity-icons.git|main
 bfonts|https://github.com/boredos/bfonts.git|main
 doomgeneric|https://github.com/boredos/doomgeneric.git|main
 bearssl|https://www.bearssl.org/git/BearSSL|master
-bpm|https://github.com/boredos/bpm.git|main
-"
+bpm|https://github.com/boredos/bpm.git|main"
 
 LOCKDIR="build/fetch.lock"
 if ! mkdir "$LOCKDIR" 2>/dev/null; then

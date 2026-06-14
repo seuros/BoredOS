@@ -28,7 +28,7 @@ Developers should avoid bloating existing folders. Creating a **new, dedicated e
 1. **Large Standalone Scope**: Any large application featuring significant logic (e.g. a game, a terminal emulator, or a custom database engine) should have its own repository.
 2. **Third-Party Ports**: Any imported third-party open-source codebase (e.g. `lua`, `tcc`, or a standard library) **must** reside in its own isolated repository.
 3. **Licensing Isolation**: BoredOS core components use the **GNU GPL v3.0**. If you are porting software that is licensed under a different standard (such as the **MIT License**, **BSD 2-Clause**, or **LGPL**), you **must** isolate it in its own repository with its own license file to maintain licensing compliance.
-4. **Asset & Media Footprint**: Repositories containing thousands of binary/media assets (such as the `bart` wallpapers or the `colloid` icon sets) must be isolated to keep the main code repository small, quick to stage, and easy to clone.
+4. **Asset & Media Footprint**: Repositories containing thousands of binary/media assets (such as the `bart` wallpapers or the `serenityicons` icon sets) must be isolated to keep the main code repository small, quick to stage, and easy to clone.
 
 ---
 

@@ -130,3 +130,48 @@ int shm_allocate(shm_segment_t *seg, size_t size) {
     spinlock_release_irqrestore(&shm_lock, flags);
     return 0;
 }
+
+void shm_unlink(const char *name) {
+    if (!name || name[0] == '\0') return;
+
+    uint64_t flags = spinlock_acquire_irqsave(&shm_lock);
+    shm_segment_t *cur = shm_list;
+    while (cur) {
+        int match = 1;
+        for (int i = 0; name[i] || cur->name[i]; i++) {
+            if (name[i] != cur->name[i]) {
+                match = 0;
+                break;
+            }
+        }
+        if (match) {
+            // Remove from global list
+            shm_segment_t *prev = NULL;
+            shm_segment_t *temp = shm_list;
+            while (temp) {
+                if (temp == cur) {
+                    if (prev) {
+                        prev->next = temp->next;
+                    } else {
+                        shm_list = temp->next;
+                    }
+                    break;
+                }
+                prev = temp;
+                temp = temp->next;
+            }
+
+            // Decrement the reference count representing the namespace entry
+            cur->ref_count--;
+            if (cur->ref_count <= 0) {
+                for (uint32_t i = 0; i < cur->page_count; i++) {
+                    kfree((void *)p2v(cur->phys_pages[i]));
+                }
+                kfree(cur);
+            }
+            break;
+        }
+        cur = cur->next;
+    }
+    spinlock_release_irqrestore(&shm_lock, flags);
+}

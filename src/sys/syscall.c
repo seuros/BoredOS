@@ -2612,6 +2612,14 @@ static uint64_t handle_sys_mmap(const syscall_args_t *args) {
     // freeing backing pages while they are still mapped into userspace.
     shm_ref(seg);
 
+    // Track the SHM mapping in proc
+    if (proc->shm_mapping_count < 32) {
+      proc->shm_mappings[proc->shm_mapping_count].addr = virt_addr;
+      proc->shm_mappings[proc->shm_mapping_count].length = aligned_len;
+      proc->shm_mappings[proc->shm_mapping_count].seg = (void*)seg;
+      proc->shm_mapping_count++;
+    }
+
     // Map pages covering the requested length
     uint32_t pages_to_map = aligned_len / 4096;
     for (uint32_t i = 0; i < pages_to_map; i++) {
@@ -2639,6 +2647,22 @@ static uint64_t handle_sys_munmap(const syscall_args_t *args) {
   for (uint64_t off = 0; off < aligned_len; off += 4096) {
     paging_unmap_page(proc->pml4_phys, addr + off);
   }
+
+  // Find and release the SHM mapping
+  for (uint32_t i = 0; i < proc->shm_mapping_count; i++) {
+    if (proc->shm_mappings[i].addr == addr) {
+      if (proc->shm_mappings[i].seg) {
+        shm_unref((shm_segment_t *)proc->shm_mappings[i].seg);
+      }
+      // Remove from list by shifting remaining
+      for (uint32_t j = i; j < proc->shm_mapping_count - 1; j++) {
+        proc->shm_mappings[j] = proc->shm_mappings[j + 1];
+      }
+      proc->shm_mapping_count--;
+      break;
+    }
+  }
+
   return 0;
 }
 
