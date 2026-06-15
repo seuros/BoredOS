@@ -57,6 +57,9 @@ The SDK and toolchain guides for creating your own `.elf` userland binaries.
 -   [`ELF App Metadata`](appdev/elf_metadata.md): How to declare app descriptions using source annotations, how the build system embeds them into `.note.boredos.app` ELF sections, and how the kernel reads them at runtime.
 -   [`Example Apps`](appdev/examples/README.md): A collection of sample C applications ranging from basic terminal output to advanced direct framebuffer access and TCP networking.
 -   [`Native TCC`](appdev/tcc.md): How to use the Tiny C Compiler (TCC) to build and run C applications directly on BoredOS.
+-   [`Nova Protocol`](appdev/nova/nova_protocol.md): Detailed wire protocol formats and event layouts for the desktop compositor.
+-   [`Developing Nova Clients`](appdev/nova/nova_development.md): Guide for building applications using the low-level Nova compositor socket interface.
+-   [`Nova ToolKit (NTK)`](appdev/nova/ntk.md): Official widget toolkit for developing graphical applications with decorations and layouts.
 
 ### 4. [Usage](usage/)
 General guides on how to interact with the OS.

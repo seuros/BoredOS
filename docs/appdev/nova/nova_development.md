@@ -5,7 +5,11 @@
 
 ---
 
-This guide explains how to write a Nova-aware userland application in BoredOS. It covers connection setup, surface allocation, shared memory rendering, event handling, resizing, and cleanup.
+BoredOS supports two levels of graphical client development:
+1. **High-Level (Recommended):** The [Nova Toolkit (NTK)](ntk.md) is a feature-rich GUI toolkit that manages window frames, styling, layouts, widgets, input redirection, and event dispatching.
+2. **Low-Level (Direct Protocol):** The raw `libnovaproto` API, which communicates directly with the Nova socket `/tmp/nova.sock` using custom shared memory segments, dirty damage lists, and low-level wire frames.
+
+This guide explains the low-level, direct protocol approach for developers who need manual control or want to implement custom rendering/toolkits. For standard application development, please refer to the [NTK Developer Guide](ntk.md).
 
 ## 1. Include the Nova API
 

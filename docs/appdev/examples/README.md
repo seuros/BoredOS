@@ -22,6 +22,12 @@ The examples are listed in order of increasing complexity. Click on a tutorial t
 
 *   **[`04_tcp_client.md`](04_tcp_client.md)**: Outbound networking. This example demonstrates how to verify the network state, perform DNS name resolution, establish a TCP connection over port 80, transmit a standard HTTP/1.1 request, and read/dump the raw response to the console.
 
+## 🔵 Graphical / GUI (Nova Toolkit)
+
+The native desktop environment source directory contains structured GUI apps using the Nova Toolkit:
+*   **[helloworld.c](file:///Users/chris/BoredOS/external/nova/src/helloworld.c)**: Demonstrates building tabbed windows, buttons, checkboxes, radio groups, sliders, combo boxes, list boxes, tables, text areas, input fields, modal dialogs, and a custom linear gradient canvas.
+*   **[about.c](file:///Users/chris/BoredOS/external/nova/src/about.c)**: A clean implementation of a system specification window featuring branding images, centered label text, and non-resizable layouts.
+
 ---
 
 > [!TIP]

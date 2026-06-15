@@ -24,6 +24,8 @@ Primary headers are in `external/libc/include/`.
 - [`Syscalls`](syscalls.md): syscall numbers, FS/SYSTEM command IDs, and wrappers
 - [`Raw Graphics Guide`](framebuffer_drawing.md): raw framebuffer (`/dev/fb0`) drawing, ioctls, mmap, and TTY recovery
 - [`Native TCC`](tcc.md): Native C compilation directly on BoredOS
+- [`Nova Protocol`](nova/nova_protocol.md): Compositor wire format protocols and event messaging.
+- [`Nova Toolkit (NTK)`](nova/ntk.md): Native C object-based widget library for graphical GUI software.
 
 ## Typical Include Set
 
@@ -41,6 +43,18 @@ For Direct Framebuffer (Graphics) apps:
 ```c
 #include <sys/ioctl.h>
 #include <sys/kd.h>
+```
+
+For raw Nova compositor clients:
+
+```c
+#include <novaproto.h>
+```
+
+For NTK GUI applications:
+
+```c
+#include <ntk.h>
 ```
 
 ## Build and Packaging

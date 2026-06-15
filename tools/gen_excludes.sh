@@ -80,7 +80,9 @@ if [ -f "$EXCLUDES_FILE" ]; then
     sort -u "$EXCLUDES_FILE" -o "$EXCLUDES_FILE"
 fi
 
-# Always exclude the packages folder itself and the excludes file itself
+# Always exclude the packages folder itself, the excludes file itself, and the installer itself
 echo "/usr/share/packages" >> "$EXCLUDES_FILE"
 echo "/usr/share/packages/excludes.txt" >> "$EXCLUDES_FILE"
+echo "/bin/boredos_install" >> "$EXCLUDES_FILE"
+echo "/bin/boredos_install.elf" >> "$EXCLUDES_FILE"
 sort -u "$EXCLUDES_FILE" -o "$EXCLUDES_FILE"

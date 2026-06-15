@@ -22,7 +22,7 @@ typedef struct {
 ```
 
 - `magic` must be `0x4E4F5641` (`"NOVA"`).
-- `version` is currently `1`.
+- `version` is currently 2.0 but for the forseeable future this will not stop Nova from rejecting frames with other version numbers.
 - `flags` is reserved for future use.
 - `msg_type` identifies the request or event type.
 - `payload_size` is the number of bytes following the header.
@@ -44,6 +44,7 @@ typedef struct {
 | `MSG_QUERY_WINDOWS` | Request a window list from Nova. |
 | `MSG_SET_FLAGS` | Update surface flags. |
 | `MSG_QUIT` | Ask Nova compositor to exit. |
+| `MSG_GET_SURFACE_GEOMETRY` | Query position and size of an existing surface. |
 
 ## Event message types (Nova → Client)
 
@@ -83,6 +84,10 @@ struct {
     uint32_t surface_id;
     char shm_path[108];
 } __attribute__((packed));
+
+The `flags` field can configure custom surface traits:
+- `SURFACE_FLAG_TRANSPARENT` (`0x1`): Configures the surface to support transparent pixel blending.
+- `SURFACE_FLAG_NO_RESIZE` (`0x2`): Disables sizing borders and controls, preventing user resizing of the surface.
 ```
 
 Nova allocates a new surface and returns a shared memory path such as `/dev/shm/nova_surf_fd%d_%u`.
@@ -166,6 +171,19 @@ struct {
 
 Current Nova behavior uses `state_flags & 1` to denote the active/focused state.
 
+### `MSG_SET_FLAGS`
+
+Payload:
+
+```c
+struct {
+    uint32_t surface_id;
+    uint32_t flags;
+} __attribute__((packed));
+```
+
+Updates the surface flags (such as transparent and no-resize options) at runtime.
+
 ### `MSG_DESTROY_SURFACE`
 
 Payload:
@@ -180,6 +198,32 @@ No payload.
 
 Nova replies with one or more `EVT_WINDOW_CREATED` events followed by a final `EVT_WINDOW_LIST_END` event.
 
+### `MSG_GET_SURFACE_GEOMETRY`
+
+Payload:
+
+```c
+uint32_t surface_id;
+```
+
+Reply payload:
+
+```c
+struct {
+    uint32_t surface_id;
+    int x, y;
+    uint32_t w, h;
+} __attribute__((packed));
+```
+
+Requests the current coordinates and dimensions of the specified surface.
+
+### `MSG_QUIT`
+
+No payload.
+
+Instructs the Nova compositor to exit.
+
 ## Event payloads
 
 ### `EVT_KEY`
@@ -192,12 +236,18 @@ struct {
     uint32_t keycode;
     uint32_t modifiers;
     uint8_t pressed;
+    uint8_t text_len;
+    char text[5];
+    uint32_t codepoint;
 } __attribute__((packed));
 ```
 
 - `keycode` is a value from `NovaKeycode`.
-- `modifiers` uses bit flags: `Shift`, `Ctrl`, `Alt`.
+- `modifiers` uses bit flags: `Shift` (`0x01`), `Ctrl` (`0x02`), `Alt` (`0x04`), `AltGr` (`0x08`), `CapsLock` (`0x10`).
 - `pressed` is `1` for key down, `0` for key release.
+- `text_len` is the number of valid bytes in `text` (maximum 4).
+- `text` is a null-terminated UTF-8 translation of the key event.
+- `codepoint` is the Unicode codepoint representing the key input.
 
 ### `EVT_POINTER`
 
@@ -287,7 +337,14 @@ typedef struct {
     uint32_t surface_id;
     union {
         struct { int x, y; uint32_t buttons; } pointer;
-        struct { uint32_t keycode; uint32_t modifiers; uint8_t pressed; } key;
+        struct {
+            uint32_t keycode;
+            uint32_t modifiers;
+            uint8_t pressed;
+            uint8_t text_len;
+            char text[5];
+            uint32_t codepoint;
+        } key;
         struct { uint32_t w, h; } resize;
         struct { uint32_t state_flags; } state;
         struct { char title[128]; uint32_t state_flags; char icon_path[256]; } window;
