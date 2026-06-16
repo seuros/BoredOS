@@ -67,7 +67,6 @@ typedef enum {
 } fs_cmd_t;
 
 typedef enum {
-    SYSTEM_CMD_CLEAR_SCREEN = 10,
     SYSTEM_CMD_RTC_GET = 11,
     SYSTEM_CMD_REBOOT = 12,
     SYSTEM_CMD_SHUTDOWN = 13,

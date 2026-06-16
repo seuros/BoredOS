@@ -1493,18 +1493,6 @@ static const syscall_handler_fn fs_cmd_table[FS_CMD_TABLE_SIZE] = {
     [FS_CMD_LIST_OFFSET] = fs_cmd_list_offset, // 34
 };
 
-static uint64_t sys_cmd_clear_screen(const syscall_args_t *args) {
-  (void)args;
-  process_t *proc = process_get_current();
-  if (proc && proc->is_terminal_proc && proc->tty_id >= 0) {
-    tty_write(proc->tty_id, "\x1b[H\x1b[2J", 7);
-    return 0;
-  }
-  extern void cmd_screen_clear(void);
-  cmd_screen_clear();
-  return 0;
-}
-
 static uint64_t sys_cmd_rtc_get(const syscall_args_t *args) {
   int *dt = (int *)args->arg2;
   if (!dt)
@@ -2347,7 +2335,6 @@ static uint64_t sys_cmd_disk_replace_kernel(const syscall_args_t *args) {
 
 #define SYS_CMD_TABLE_SIZE 110
 static const syscall_handler_fn sys_cmd_table[SYS_CMD_TABLE_SIZE] = {
-    [SYSTEM_CMD_CLEAR_SCREEN] = sys_cmd_clear_screen,
     [SYSTEM_CMD_RTC_GET] = sys_cmd_rtc_get,
     [SYSTEM_CMD_REBOOT] = sys_cmd_reboot,
     [SYSTEM_CMD_SHUTDOWN] = sys_cmd_shutdown,

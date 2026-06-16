@@ -58,7 +58,6 @@ Notes:
 
 | ID | Macro | Meaning |
 |---|---|---|
-| 10 | `SYSTEM_CMD_CLEAR_SCREEN` | Clear text console |
 | 29 | `SYSTEM_CMD_SET_TEXT_COLOR` | Set console text color |
 | 49 | `SYSTEM_CMD_SET_KEYBOARD_LAYOUT` | Set active keyboard layout ID |
 | 51 | `SYSTEM_CMD_GET_KEYBOARD_LAYOUT` | Get current keyboard layout ID |
