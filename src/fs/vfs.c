@@ -1280,7 +1280,11 @@ bool vfs_exists(const char *path) {
         if (vfs_strcmp(dev, "mouse") == 0 || vfs_starts_with(dev, "mouse")) return true;
         if (vfs_starts_with(dev, "tty")) return true;
         if (vfs_strcmp(dev, "pcsk") == 0) return true;
-        if (vfs_starts_with(dev, "shm/")) return true;
+        if (vfs_strcmp(dev, "shm") == 0) return true;
+        if (vfs_starts_with(dev, "shm/")) {
+            extern bool shm_exists(const char *name);
+            return shm_exists(dev + 4);
+        }
         if (disk_get_by_name(dev)) return true;
     }
 
@@ -1316,6 +1320,7 @@ bool vfs_is_directory(const char *path) {
     spinlock_release_irqrestore(&vfs_lock, flags_vfs);
 
     if (vfs_strcmp(normalized, "/dev") == 0 || 
+        vfs_strcmp(normalized, "/dev/shm") == 0 || 
         vfs_strcmp(normalized, "/sys") == 0 || 
         vfs_strcmp(normalized, "/proc") == 0) return true;
 

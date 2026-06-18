@@ -175,3 +175,27 @@ void shm_unlink(const char *name) {
     }
     spinlock_release_irqrestore(&shm_lock, flags);
 }
+
+bool shm_exists(const char *name) {
+    if (!name || name[0] == '\0') return false;
+
+    uint64_t flags = spinlock_acquire_irqsave(&shm_lock);
+    shm_segment_t *cur = shm_list;
+    while (cur) {
+        int match = 1;
+        for (int i = 0; name[i] || cur->name[i]; i++) {
+            if (name[i] != cur->name[i]) {
+                match = 0;
+                break;
+            }
+        }
+        if (match) {
+            spinlock_release_irqrestore(&shm_lock, flags);
+            return true;
+        }
+        cur = cur->next;
+    }
+    spinlock_release_irqrestore(&shm_lock, flags);
+    return false;
+}
+

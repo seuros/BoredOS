@@ -21,5 +21,6 @@ void shm_ref(shm_segment_t *seg);
 void shm_unref(shm_segment_t *seg);
 int shm_allocate(shm_segment_t *seg, size_t size);
 void shm_unlink(const char *name);
+bool shm_exists(const char *name);
 
 #endif
