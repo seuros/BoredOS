@@ -22,7 +22,7 @@ bart|https://github.com/boredos/bart.git|main
 serenityicons|https://github.com/BoredOS/serenity-icons.git|main
 bfonts|https://github.com/boredos/bfonts.git|main
 doomgeneric|https://github.com/boredos/doomgeneric.git|main
-bearssl|https://www.bearssl.org/git/BearSSL|master
+bearssl|https://github.com/boredos/bearssl.git|master
 bpm|https://github.com/boredos/bpm.git|main"
 
 LOCKDIR="build/fetch.lock"
