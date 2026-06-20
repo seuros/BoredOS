@@ -85,7 +85,7 @@ jobs:
           name: Nightly Build (${{ steps.metadata.outputs.short_sha }})
           body: |
             This is an automated nightly build of BoredOS, this is not a final release and may be unstable.
-            There will also never be a full release. This is simply meant for people to preview the OS. In
+            There will also never be a full release. This is simply meant for people to preview the OS in
             it's very latest state.
 
             Built from commit:
