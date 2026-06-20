@@ -17,7 +17,7 @@ KERNEL_ELF = $(BUILD_DIR)/boredos.elf
 ISO_IMAGE = boredos.iso
 
 # Package-based applications/assets
-PACKAGES = kilo lua bfonts nova doomgeneric bart
+PACKAGES = kilo lua bfonts nova doomgeneric bart serenityicons tcc netutils bearssl
 
 BLUE  = \033[1;34m
 GREEN = \033[1;32m
@@ -179,8 +179,6 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF) userland packages
 	$(MAKE) -C external/bsh BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
 	$(MAKE) -C external/coreutils BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
 	$(MAKE) -C external/boredos_install BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
-	$(MAKE) -C external/tcc BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
-	$(MAKE) -C external/netutils BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
 	$(MAKE) -C external/bpm BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
 	@for pkg in $(PACKAGES); do \
 		$(MAKE) -C external/$$pkg BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install || exit 1; \
@@ -207,10 +205,6 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF) userland packages
 	@cp build/sdk/lib/crtn.o $(BUILD_DIR)/initrd/usr/lib/crtn.o
 	@cp -r build/sdk/include/. $(BUILD_DIR)/initrd/usr/include/
 
-	@printf "$(YELLOW)[COPY]$(RESET) Serenity icons (16x16)...\n"
-	@cp external/serenityicons/16x16/*.png $(BUILD_DIR)/initrd/Library/images/icons/serenityicons/16x16/
-	@printf "$(YELLOW)[COPY]$(RESET) Serenity icons (32x32)...\n"
-	@cp external/serenityicons/32x32/*.png $(BUILD_DIR)/initrd/Library/images/icons/serenityicons/32x32/
 
 	@printf "$(YELLOW)[COPY]$(RESET) Branding assets...\n"
 	@cp -r branding/* $(BUILD_DIR)/initrd/Library/images/branding/
