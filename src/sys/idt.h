@@ -11,6 +11,9 @@ void idt_set_gate(uint8_t vector, void *isr, uint16_t cs, uint8_t flags);
 void idt_register_interrupts(void);
 void idt_load(void);
 
+struct registers_t;
+void idt_register_irq_handler(int irq, uint64_t (*handler)(struct registers_t *regs));
+
 // ISR wrappers defined in assembly
 extern void isr0_wrapper(void);  // Timer
 extern void isr1_wrapper(void);  // Keyboard

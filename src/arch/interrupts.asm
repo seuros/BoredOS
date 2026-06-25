@@ -9,12 +9,18 @@ global isr12_wrapper
 global isr14_wrapper
 global isr128_wrapper
 global isr_sched_ipi_wrapper
+global isr5_wrapper
+global isr9_wrapper
+global isr10_wrapper
+global isr11_wrapper
 extern timer_handler
 extern keyboard_handler
 extern mouse_handler
 extern sched_ipi_handler
 extern syscall_handler_c
 extern exception_handler_c
+extern ac97_handler
+extern pci_irq_handler
 
 ; Helper to send EOI (End of Interrupt) to PIC
 send_eoi:
@@ -95,6 +101,18 @@ isr1_wrapper:
 
 isr12_wrapper:
     ISR_NOERRCODE mouse_handler, 44
+
+isr5_wrapper:
+    ISR_NOERRCODE ac97_handler, 37
+
+isr9_wrapper:
+    ISR_NOERRCODE ac97_handler, 41
+
+isr10_wrapper:
+    ISR_NOERRCODE ac97_handler, 42
+
+isr11_wrapper:
+    ISR_NOERRCODE ac97_handler, 43
 
 isr_sched_ipi_wrapper:
     ISR_NOERRCODE sched_ipi_handler, 65

@@ -260,6 +260,16 @@ void idt_register_interrupts(void) {
     extern void isr_sched_ipi_wrapper(void);
     idt_set_gate(0x41, isr_sched_ipi_wrapper, cs, 0x8E);
 
+    // PCI/ISA IRQ wrappers
+    extern void isr5_wrapper(void);
+    extern void isr9_wrapper(void);
+    extern void isr10_wrapper(void);
+    extern void isr11_wrapper(void);
+    idt_set_gate(37, isr5_wrapper, cs, 0x8E);
+    idt_set_gate(41, isr9_wrapper, cs, 0x8E);
+    idt_set_gate(42, isr10_wrapper, cs, 0x8E);
+    idt_set_gate(43, isr11_wrapper, cs, 0x8E);
+
     // Syscall Handler (vector 128) - DPL 3 for user access
     extern void isr128_wrapper(void);
     idt_set_gate(128, isr128_wrapper, cs, 0xEE);
@@ -271,4 +281,30 @@ void idt_load(void) {
     asm volatile ("lidt %0" : : "m"(idtr));
     // Do not sti here! The OS must decide when to enable interrupts
     // after all subsystems (WM, PS/2) are initialized!
+}
+
+static uint64_t (*irq_handlers[16])(registers_t *regs) = {0};
+
+void idt_register_irq_handler(int irq, uint64_t (*handler)(registers_t *regs)) {
+    if (irq >= 0 && irq < 16) {
+        irq_handlers[irq] = handler;
+    }
+}
+
+uint64_t irq_dispatch(int irq, registers_t *regs) {
+    if (irq >= 0 && irq < 16 && irq_handlers[irq]) {
+        return irq_handlers[irq](regs);
+    }
+
+    // Default EOI for unregistered IRQs
+    if (irq >= 8) {
+        outb(0xA0, 0x20);
+    }
+    outb(0x20, 0x20);
+    return (uint64_t)regs;
+}
+
+uint64_t pci_irq_handler(registers_t *regs) {
+    int irq = (int)regs->int_no - 32;
+    return irq_dispatch(irq, regs);
 }
