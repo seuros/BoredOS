@@ -136,7 +136,7 @@ userland: build/sdk
 	@printf "$(GREEN)[OK]$(RESET) Userland build complete.\n"
 
 .PHONY: packages
-packages: build/sdk
+packages: build/sdk $(BEARSSL_LIB)
 	$(call PRINT_STEP,BUILDING BOREDOS PACKAGES)
 	@for pkg in $(PACKAGES); do \
 		printf "$(YELLOW)[PACKAGES]$(RESET) Building package $$pkg...\n"; \
