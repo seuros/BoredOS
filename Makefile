@@ -98,10 +98,17 @@ $(BUILD_DIR)/%.o: $(SRC_DIR)/%.asm | $(BUILD_DIR)
 	$(NASM) $(NASMFLAGS) $< -o $@
 
 
-$(KERNEL_ELF): $(OBJ_FILES)
+BEARSSL_LIB = external/bearssl/libbearssl.a
+
+$(BEARSSL_LIB): build/sdk
+	$(call PRINT_STEP,BUILDING BEARSSL)
+	$(MAKE) -C external/bearssl CC=$(CC) AR=$(AR) BOREDOS_SDK=$(abspath build/sdk)
+	@printf "$(GREEN)[OK]$(RESET) BearSSL built: $@\n"
+
+$(KERNEL_ELF): $(OBJ_FILES) $(BEARSSL_LIB)
 	$(call PRINT_STEP,LINKING KERNEL)
 	@printf "$(YELLOW)[LD]$(RESET) Linking kernel ELF: $@\n"
-	$(LD) $(LDFLAGS) -o $@ $(OBJ_FILES)
+	$(LD) $(LDFLAGS) -o $@ $(OBJ_FILES) $(BEARSSL_LIB)
 	@printf "$(GREEN)[OK]$(RESET) Kernel ELF built: $@\n"
 
 external-fetch:
