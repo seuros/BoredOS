@@ -12,6 +12,7 @@
 #include "../core/kutils.h"
 #include "../graphics/graphics.h"
 #include "dev/pcsk.h"
+#include "dev/ac97.h"
 typedef framebuffer_info_t vfs_framebuffer_info_t;
 
 
@@ -427,6 +428,42 @@ vfs_file_t* vfs_open(const char *path, const char *mode) {
             }
         }
 
+        // Handle DSP (audio) device: /dev/dsp
+        if (vfs_strcmp(devname, "dsp") == 0) {
+            if (!ac97_present()) {
+                spinlock_release_irqrestore(&vfs_lock, flags);
+                return NULL;
+            }
+            vfs_file_t *vf = vfs_alloc_file();
+            if (vf) {
+                vf->mount = &mounts[0];
+                vf->fs_handle = ac97_open_client();
+                vf->is_device = true;
+                vf->device_type = DEVICE_TYPE_AUDIO;
+                vf->position = 0;
+                spinlock_release_irqrestore(&vfs_lock, flags);
+                return vf;
+            }
+        }
+
+        // Handle Mixer device: /dev/mixer
+        if (vfs_strcmp(devname, "mixer") == 0) {
+            if (!ac97_present()) {
+                spinlock_release_irqrestore(&vfs_lock, flags);
+                return NULL;
+            }
+            vfs_file_t *vf = vfs_alloc_file();
+            if (vf) {
+                vf->mount = &mounts[0];
+                vf->fs_handle = (void*)0;
+                vf->is_device = true;
+                vf->device_type = DEVICE_TYPE_MIXER;
+                vf->position = 0;
+                spinlock_release_irqrestore(&vfs_lock, flags);
+                return vf;
+            }
+        }
+
         // Handle Shared Memory: /dev/shm/some_name
         if (vfs_starts_with(devname, "shm/")) {
             const char *shm_name = devname + 4;
@@ -506,6 +543,10 @@ void vfs_close(vfs_file_t *file) {
         typedef struct shm_segment shm_segment_t;
         extern void shm_unref(shm_segment_t *seg);
         shm_unref((shm_segment_t *)file->fs_handle);
+    }
+
+    if (file->is_device && file->device_type == DEVICE_TYPE_AUDIO) {
+        ac97_close_client(file->fs_handle);
     }
 
     vfs_mount_t *mount = file->mount;
@@ -594,6 +635,9 @@ int vfs_read(vfs_file_t *file, void *buf, int size) {
             file->position += to_read;
             return (int)to_read;
         }
+        else if (file->device_type == DEVICE_TYPE_AUDIO) {
+            return ac97_read(file->fs_handle, buf, size);
+        }
         return -1;
     }
 
@@ -670,6 +714,9 @@ int vfs_write(vfs_file_t *file, const void *buf, int size) {
             }
             file->position += to_write;
             return (int)to_write;
+        }
+        else if (file->device_type == DEVICE_TYPE_AUDIO) {
+            return ac97_write(file->fs_handle, buf, size);
         }
         return -1;
     }
@@ -850,6 +897,12 @@ int vfs_ioctl(vfs_file_t *file, uint64_t request, void *arg) {
         else if (file->device_type == DEVICE_TYPE_PCSPKR) {
             extern int pcsk_ioctl(void *file_handle, uint64_t request, void *arg);
             return pcsk_ioctl(file->fs_handle, request, arg);
+        }
+        else if (file->device_type == DEVICE_TYPE_AUDIO) {
+            return ac97_dsp_ioctl(file->fs_handle, request, arg);
+        }
+        else if (file->device_type == DEVICE_TYPE_MIXER) {
+            return ac97_mixer_ioctl(request, arg);
         }
         return -1;
     }
@@ -1109,6 +1162,26 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max, int off
                 count++;
             }
 
+            // DSP (audio) device
+            if (count < max) {
+                if (ac97_present()) {
+                    vfs_strcpy(entries[count].name, "dsp");
+                    entries[count].size = 0;
+                    entries[count].is_directory = 0;
+                    count++;
+                }
+            }
+
+            // Mixer device
+            if (count < max) {
+                if (ac97_present()) {
+                    vfs_strcpy(entries[count].name, "mixer");
+                    entries[count].size = 0;
+                    entries[count].is_directory = 0;
+                    count++;
+                }
+            }
+
 
             // Framebuffer device
             if (count < max) {
@@ -1280,6 +1353,12 @@ bool vfs_exists(const char *path) {
         if (vfs_strcmp(dev, "mouse") == 0 || vfs_starts_with(dev, "mouse")) return true;
         if (vfs_starts_with(dev, "tty")) return true;
         if (vfs_strcmp(dev, "pcsk") == 0) return true;
+        if (vfs_strcmp(dev, "dsp") == 0) {
+            return ac97_present();
+        }
+        if (vfs_strcmp(dev, "mixer") == 0) {
+            return ac97_present();
+        }
         if (vfs_strcmp(dev, "shm") == 0) return true;
         if (vfs_starts_with(dev, "shm/")) {
             extern bool shm_exists(const char *name);

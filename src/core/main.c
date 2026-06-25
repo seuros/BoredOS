@@ -38,6 +38,7 @@
 #include "input/keymap.h"
 #include "input/keyboard.h"
 #include "../drivers/ACPI/acpi.h"
+#include "dev/ac97.h"
 
 extern void sysfs_init_subsystems(void);
 
@@ -388,6 +389,9 @@ void kmain(void) {
 
     disk_manager_init();
     disk_manager_scan();
+    
+    // Initialize AC97 sound card
+    ac97_init();
 
     sysfs_init_subsystems();
     vfs_mount("/sys", "sysfs", "sysfs", sysfs_get_ops(), NULL);
