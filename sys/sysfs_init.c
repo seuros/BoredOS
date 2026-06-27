@@ -12,11 +12,6 @@
 #include "platform.h"
 #include "disk.h"
 
-// --- Helper: itoa ---
-static void sys_itoa(int n, char *s) {
-    itoa(n, s);
-}
-
 // --- Graphics Implementation ---
 static int read_gfx_drm(char *buf, int size, int offset) {
     char out[512];
