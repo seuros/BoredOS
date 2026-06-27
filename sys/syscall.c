@@ -52,19 +52,6 @@
 #define SYSTEM_CMD_SET_FS_BASE 79
 #define MSR_FS_BASE 0xC0000100
 
-// Read MSR
-static inline uint64_t rdmsr(uint32_t msr) {
-  uint32_t low, high;
-  asm volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(msr));
-  return ((uint64_t)high << 32) | low;
-}
-
-// Write MSR
-static inline void wrmsr(uint32_t msr, uint64_t value) {
-  uint32_t low = value & 0xFFFFFFFF;
-  uint32_t high = value >> 32;
-  asm volatile("wrmsr" : : "c"(msr), "a"(low), "d"(high));
-}
 
 extern void isr128_wrapper(void);
 extern void *kmalloc(size_t size);
