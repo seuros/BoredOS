@@ -182,6 +182,14 @@ void itoa_hex(uint64_t n, char *buf) {
     }
 }
 
+void itoa_hex32(uint32_t n, char *buf) {
+    for (int j = 7; j >= 0; j--) {
+        int digit = (n >> (j * 4)) & 0xF;
+        *buf++ = digit < 10 ? '0' + digit : 'a' + (digit - 10);
+    }
+    *buf = 0;
+}
+
 void k_delay(int iterations) {
     for (volatile int i = 0; i < iterations; i++) {
         __asm__ __volatile__("nop");

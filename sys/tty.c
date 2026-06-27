@@ -362,7 +362,15 @@ void tty_write(int id, const char *data, size_t len) {
         bool has_codepoint = false;
         unsigned char uc = (unsigned char)raw_c;
         
-        if (t->utf8_state == 0) {
+        if (t->utf8_state > 0 && (uc & 0xC0) == 0x80) {
+            t->utf8_codepoint = (t->utf8_codepoint << 6) | (uc & 0x3F);
+            t->utf8_state--;
+            if (t->utf8_state == 0) {
+                c = t->utf8_codepoint;
+                has_codepoint = true;
+            }
+        } else {
+            t->utf8_state = 0;
             if ((uc & 0x80) == 0) {
                 c = uc;
                 has_codepoint = true;
@@ -375,30 +383,6 @@ void tty_write(int id, const char *data, size_t len) {
             } else if ((uc & 0xF8) == 0xF0) {
                 t->utf8_codepoint = uc & 0x07;
                 t->utf8_state = 3;
-            }
-        } else {
-            if ((uc & 0xC0) == 0x80) {
-                t->utf8_codepoint = (t->utf8_codepoint << 6) | (uc & 0x3F);
-                t->utf8_state--;
-                if (t->utf8_state == 0) {
-                    c = t->utf8_codepoint;
-                    has_codepoint = true;
-                }
-            } else {
-                t->utf8_state = 0;
-                if ((uc & 0x80) == 0) {
-                    c = uc;
-                    has_codepoint = true;
-                } else if ((uc & 0xE0) == 0xC0) {
-                    t->utf8_codepoint = uc & 0x1F;
-                    t->utf8_state = 1;
-                } else if ((uc & 0xF0) == 0xE0) {
-                    t->utf8_codepoint = uc & 0x0F;
-                    t->utf8_state = 2;
-                } else if ((uc & 0xF8) == 0xF0) {
-                    t->utf8_codepoint = uc & 0x07;
-                    t->utf8_state = 3;
-                }
             }
         }
         

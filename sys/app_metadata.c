@@ -20,13 +20,6 @@ typedef struct {
 static app_metadata_cache_entry_t g_app_metadata_cache[APP_METADATA_CACHE_SIZE];
 static int g_app_metadata_cache_next = 0;
 
-static size_t am_strlen(const char *str) {
-    size_t len = 0;
-    if (!str) return 0;
-    while (str[len]) len++;
-    return len;
-}
-
 static bool am_str_eq(const char *a, const char *b) {
     if (!a || !b) return false;
     while (*a && *b) {
@@ -94,7 +87,7 @@ static bool am_validate_metadata(const boredos_app_metadata_t *metadata) {
 }
 
 static bool am_note_name_matches(const char *name, uint32_t name_size) {
-    size_t expected_len = am_strlen(BOREDOS_APP_NOTE_OWNER);
+    size_t expected_len = strlen(BOREDOS_APP_NOTE_OWNER);
     if (!name || name_size == 0) return false;
     if ((size_t)name_size < expected_len) return false;
 
@@ -181,7 +174,7 @@ static bool am_parse_note_section(vfs_file_t *file,
 
 static bool am_scan_raw_notes(vfs_file_t *file, uint32_t file_size, boredos_app_metadata_t *out_metadata) {
     uint8_t *buf = NULL;
-    size_t owner_len = am_strlen(BOREDOS_APP_NOTE_OWNER);
+    size_t owner_len = strlen(BOREDOS_APP_NOTE_OWNER);
 
     if (!file || !out_metadata || file_size < sizeof(Elf64_Nhdr) + owner_len + sizeof(boredos_app_metadata_t)) {
         return false;

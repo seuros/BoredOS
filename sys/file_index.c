@@ -12,20 +12,9 @@ static file_index_t g_file_index = {0};
 static spinlock_t g_index_lock = SPINLOCK_INIT;
 static bool g_index_valid = false;
 
-static int str_len(const char *s) {
-    int n = 0;
-    while (s[n]) n++;
-    return n;
-}
-
-static void str_copy(char *d, const char *s) {
-    while ((*d++ = *s++));
-}
-
-
 static void str_cat(char *d, const char *s) {
     while (*d) d++;
-    str_copy(d, s);
+    strcpy(d, s);
 }
 
 static bool str_starts_with(const char *str, const char *prefix) {
@@ -59,7 +48,7 @@ static int fuzzy_match_score(const char *query, const char *filename) {
         }
     }
     
-    if (query_idx < str_len(query)) {
+    if (query_idx < strlen(query)) {
         return 0;
     }
     
@@ -140,7 +129,7 @@ static void index_walk_directory(const char *path, int depth) {
         
         
         file_index_entry_t *idx_entry = &g_file_index.entries[g_file_index.count];
-        str_copy(idx_entry->path, full_path);
+        strcpy(idx_entry->path, full_path);
         idx_entry->size = entry->size;
         idx_entry->mod_time_low = entry->write_date;
         idx_entry->mod_time_high = entry->write_time;
@@ -410,7 +399,7 @@ bool file_index_add_entry(const char *path, uint32_t size, uint32_t mod_time_low
     }
     
     file_index_entry_t *entry = &g_file_index.entries[g_file_index.count];
-    str_copy(entry->path, path);
+    strcpy(entry->path, path);
     entry->size = size;
     entry->mod_time_low = mod_time_low;
     entry->mod_time_high = mod_time_high;

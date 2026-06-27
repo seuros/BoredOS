@@ -9,12 +9,6 @@ static int subsystem_count = 0;
 static spinlock_t sub_lock = SPINLOCK_INIT;
 
 
-static void sub_strcpy(char *dest, const char *src) {
-    while (*src) *dest++ = *src++;
-    *dest = 0;
-}
-
-
 void subsystem_register(const char *name, kernel_subsystem_t **out_sub) {
     uint64_t flags = spinlock_acquire_irqsave(&sub_lock);
     
@@ -35,7 +29,7 @@ void subsystem_register(const char *name, kernel_subsystem_t **out_sub) {
 
     kernel_subsystem_t *s = &subsystems[subsystem_count++];
     memset(s, 0, sizeof(kernel_subsystem_t));
-    sub_strcpy(s->name, name);
+    strcpy(s->name, name);
     
     spinlock_release_irqrestore(&sub_lock, flags);
     if (out_sub) *out_sub = s;
@@ -47,7 +41,7 @@ void subsystem_add_file(kernel_subsystem_t *sub, const char *name,
     if (!sub || sub->file_count >= MAX_SUBSYSTEM_FILES) return;
     
     subsystem_file_t *f = &sub->files[sub->file_count++];
-    sub_strcpy(f->name, name);
+    strcpy(f->name, name);
     f->read = read;
     f->write = write;
 }

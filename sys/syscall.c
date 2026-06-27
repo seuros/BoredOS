@@ -1044,49 +1044,9 @@ static uint64_t fs_cmd_fcntl(const syscall_args_t *args) {
   return -1;
 }
 
-static uint64_t fs_cmd_list(const syscall_args_t *args) {
-  process_t *proc = process_get_current();
-  const char *path = (const char *)args->arg2;
-  FAT32_FileInfo *u_entries = (FAT32_FileInfo *)args->arg3;
-  int max_entries = (int)args->arg4;
-  if (!path || !u_entries)
-    return -1;
-
-  char normalized[VFS_MAX_PATH];
-  vfs_normalize_path(proc->cwd, path, normalized);
-
-  // Safety cap for kernel allocation
-  if (max_entries > 256)
-    max_entries = 256;
-  if (max_entries <= 0)
-    return 0;
-
-  vfs_dirent_t *v_entries =
-      (vfs_dirent_t *)kmalloc(sizeof(vfs_dirent_t) * max_entries);
-  if (!v_entries)
-    return -1;
-
-  int count = vfs_list_directory(normalized, v_entries, max_entries, 0);
-  if (count > 0) {
-    for (int i = 0; i < count; i++) {
-      strcpy(u_entries[i].name, v_entries[i].name);
-      u_entries[i].size = v_entries[i].size;
-      u_entries[i].is_directory = v_entries[i].is_directory;
-      u_entries[i].start_cluster = v_entries[i].start_cluster;
-      u_entries[i].write_date = v_entries[i].write_date;
-      u_entries[i].write_time = v_entries[i].write_time;
-    }
-  }
-  kfree(v_entries);
-  return (uint64_t)count;
-}
-
-static uint64_t fs_cmd_list_offset(const syscall_args_t *args) {
-  process_t *proc = process_get_current();
-  const char *path = (const char *)args->arg2;
-  FAT32_FileInfo *u_entries = (FAT32_FileInfo *)args->arg3;
-  int max_entries = (int)args->arg4;
-  int offset = (int)args->arg5;
+static uint64_t fs_list_common(process_t *proc, const char *path,
+                               FAT32_FileInfo *u_entries, int max_entries,
+                               int offset) {
   if (!path || !u_entries)
     return -1;
 
@@ -1106,7 +1066,6 @@ static uint64_t fs_cmd_list_offset(const syscall_args_t *args) {
   int count = vfs_list_directory(normalized, v_entries, max_entries, offset);
   if (count > 0) {
     for (int i = 0; i < count; i++) {
-      // Direct copy as layouts are now aligned
       strcpy(u_entries[i].name, v_entries[i].name);
       u_entries[i].size = v_entries[i].size;
       u_entries[i].is_directory = v_entries[i].is_directory;
@@ -1117,6 +1076,19 @@ static uint64_t fs_cmd_list_offset(const syscall_args_t *args) {
   }
   kfree(v_entries);
   return (uint64_t)count;
+}
+
+static uint64_t fs_cmd_list(const syscall_args_t *args) {
+  process_t *proc = process_get_current();
+  return fs_list_common(proc, (const char *)args->arg2,
+                        (FAT32_FileInfo *)args->arg3, (int)args->arg4, 0);
+}
+
+static uint64_t fs_cmd_list_offset(const syscall_args_t *args) {
+  process_t *proc = process_get_current();
+  return fs_list_common(proc, (const char *)args->arg2,
+                        (FAT32_FileInfo *)args->arg3, (int)args->arg4,
+                        (int)args->arg5);
 }
 
 static uint64_t fs_cmd_delete(const syscall_args_t *args) {

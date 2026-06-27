@@ -3,14 +3,7 @@
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 
 #include "lz4.h"
-
-static inline void lz4_memcpy(void *dest, const void *src, int n) {
-    uint8_t *d = (uint8_t *)dest;
-    const uint8_t *s = (const uint8_t *)src;
-    for (int i = 0; i < n; i++) {
-        d[i] = s[i];
-    }
-}
+#include "kutils.h"
 
 /**
  * Decompress a raw LZ4 compressed block.
@@ -39,7 +32,7 @@ static int lz4_decompress_block(const uint8_t *src, int src_len, uint8_t *dst, i
             if (op + literal_len > op_limit || ip + literal_len > ip_limit) {
                 return -2; // Destination or source overflow
             }
-            lz4_memcpy(op, ip, literal_len);
+            memcpy(op, ip, literal_len);
             op += literal_len;
             ip += literal_len;
         }
@@ -145,7 +138,7 @@ int lz4_decompress_frame(const uint8_t *src, int src_len, uint8_t *dst, int dst_
         
         if (uncompressed) {
             if (dst_pos + (int)block_size > dst_len) return -17; // Destination buffer overflow
-            lz4_memcpy(dst + dst_pos, src + pos, block_size);
+            memcpy(dst + dst_pos, src + pos, block_size);
             dst_pos += block_size;
             pos += block_size;
         } else {

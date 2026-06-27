@@ -108,21 +108,9 @@ static void fs_serial_num(uint32_t n) {
     fs_serial_char('0' + (n % 10));
 }
 
-static size_t fs_strlen(const char *str) {
-    size_t len = 0;
-    while (str[len]) len++;
-    return len;
-}
-
-static void fs_strcpy(char *dest, const char *src) {
-    while (*src) *dest++ = *src++;
-    *dest = 0;
-}
-
-
 static void fs_strcat(char *dest, const char *src) {
     while (*dest) dest++;
-    fs_strcpy(dest, src);
+    strcpy(dest, src);
 }
 
 
@@ -130,7 +118,7 @@ static void fat32_resolve_entry_name(const FAT32_DirEntry *entry,
                                      const char *lfn_buffer, bool has_lfn,
                                      char *name) {
     if (has_lfn && lfn_buffer[0] != 0) {
-        fs_strcpy(name, lfn_buffer);
+        strcpy(name, lfn_buffer);
     } else {
         int n = 0;
         for (int k = 0; k < 8 && entry->filename[k] != ' '; k++)
@@ -164,7 +152,7 @@ bool fs_starts_with(const char *str, const char *prefix) {
 
 // Extract filename from path
 static void extract_filename(const char *path, char *filename) {
-    int len = fs_strlen(path);
+    int len = strlen(path);
     int i = len - 1;
     while (i > 0 && path[i] == '/') i--;
     int start = i;
@@ -179,7 +167,7 @@ static void extract_filename(const char *path, char *filename) {
 
 // Extract parent path
 static void extract_parent_path(const char *path, char *parent) {
-    int len = fs_strlen(path);
+    int len = strlen(path);
     int i = len - 1;
     while (i > 0 && path[i] == '/') i--;
     while (i > 0 && path[i] != '/') i--;
@@ -224,11 +212,11 @@ void fat32_normalize_path(const char *path, char *normalized) {
     
 
     if (p[0] == '/') {
-        fs_strcpy(temp, "/");
+        strcpy(temp, "/");
         temp_len = 1;
     } else {
-        fs_strcpy(temp, current_dir);
-        temp_len = fs_strlen(temp);
+        strcpy(temp, current_dir);
+        temp_len = strlen(temp);
     }
 
     int i = 0;
@@ -251,19 +239,19 @@ void fat32_normalize_path(const char *path, char *normalized) {
                 temp[temp_len] = 0;
             }
         } else {
-            int comp_len = fs_strlen(component);
+            int comp_len = strlen(component);
             if (temp_len + comp_len + 2 < FAT32_MAX_PATH) {
                 if (temp[temp_len - 1] != '/') {
                     temp[temp_len++] = '/';
                     temp[temp_len] = 0;
                 }
                 fs_strcat(temp, component);
-                temp_len = fs_strlen(temp);
+                temp_len = strlen(temp);
             }
         }
     }
     if (temp_len > 1 && temp[temp_len - 1] == '/') temp[--temp_len] = 0;
-    fs_strcpy(normalized, temp);
+    strcpy(normalized, temp);
     kfree(temp);
 }
 
@@ -360,7 +348,7 @@ static int ramfs_count_files_in_dir(const char *normalized_path) {
 
 static bool check_desktop_limit(const char *normalized_path) {
     if (desktop_file_limit < 0) return true;
-    if (fs_strlen(normalized_path) > 14 && 
+    if (strlen(normalized_path) > 14 && 
         normalized_path[0] == '/' && 
         normalized_path[1] == 'r' && normalized_path[2] == 'o' && 
         normalized_path[3] == 'o' && normalized_path[4] == 't' && 
@@ -391,7 +379,7 @@ static FAT32_FileHandle* ramfs_open(const char *normalized_path, const char *mod
             if (!check_desktop_limit(normalized_path)) return NULL;
             entry = ramfs_alloc_entry();
             if (!entry) return NULL;
-            fs_strcpy(entry->full_path, normalized_path);
+            strcpy(entry->full_path, normalized_path);
             extract_filename(normalized_path, entry->filename);
             extract_parent_path(normalized_path, entry->parent_path);
             entry->start_cluster = ramfs_allocate_cluster();
@@ -638,7 +626,7 @@ static int realfs_read_cluster(FAT32_Volume *vol, uint32_t cluster, uint8_t *buf
 
 static void to_dos_filename(const char *filename, char *out) {
     for (int i = 0; i < 11; i++) out[i] = ' ';
-    int len = fs_strlen(filename);
+    int len = strlen(filename);
     int dot = -1;
     for (int i = len - 1; i >= 0; i--) {
         if (filename[i] == '.') { dot = i; break; }
@@ -672,7 +660,7 @@ static bool realfs_create_entry(FAT32_Volume *vol, uint32_t parent_cluster, cons
     char dos_name[11];
     to_dos_filename(name, dos_name);
     
-    int name_len = fs_strlen(name);
+    int name_len = strlen(name);
     bool needs_lfn = false;
     
     int dot_pos = -1;
@@ -1447,7 +1435,7 @@ static int realfs_list_directory_vol(FAT32_Volume *vol, const char *path, FAT32_
             if (de[e].attributes & ATTR_VOLUME_ID) { has_lfn = false; continue; }
             
             if (found_so_far >= offset) {
-                if (has_lfn && lfn_buffer[0] != 0) fs_strcpy(entries[count].name, lfn_buffer);
+                if (has_lfn && lfn_buffer[0] != 0) strcpy(entries[count].name, lfn_buffer);
                 else {
                     int n = 0;
                     for (int k = 0; k < 8 && de[e].filename[k] != ' '; k++) entries[count].name[n++] = de[e].filename[k];
@@ -1479,10 +1467,10 @@ static int realfs_list_directory_vol(FAT32_Volume *vol, const char *path, FAT32_
 
 static void vfs_ramfs_get_abs_path(const char *rel, char *abs) {
     if (rel[0] == '/') {
-        fs_strcpy(abs, rel);
+        strcpy(abs, rel);
     } else {
         abs[0] = '/';
-        fs_strcpy(abs + 1, rel);
+        strcpy(abs + 1, rel);
     }
 }
 
@@ -1550,7 +1538,7 @@ static int vfs_ramfs_readdir(void *fs_private, const char *rel_path, vfs_dirent_
         
         if (match) {
             if (found_so_far >= offset) {
-                fs_strcpy(entries[count].name, n->filename);
+                strcpy(entries[count].name, n->filename);
                 entries[count].size = n->size;
                 entries[count].is_directory = (n->attributes & ATTR_DIRECTORY) ? 1 : 0;
                 entries[count].start_cluster = n->start_cluster;
@@ -1654,7 +1642,7 @@ static int vfs_ramfs_get_info(void *fs_private, const char *rel_path, vfs_dirent
         return -1;
     }
     
-    fs_strcpy(info->name, entry->filename);
+    strcpy(info->name, entry->filename);
     info->size = entry->size;
     info->is_directory = (entry->attributes & ATTR_DIRECTORY) ? 1 : 0;
     info->start_cluster = entry->start_cluster;
@@ -1800,7 +1788,7 @@ static int vfs_realfs_readdir(void *fs_private, const char *rel_path, vfs_dirent
     
     int count = realfs_list_directory_vol((FAT32_Volume*)fs_private, rel_path, fat_entries, max, offset);
     for (int i = 0; i < count; i++) {
-        fs_strcpy(entries[i].name, fat_entries[i].name);
+        strcpy(entries[i].name, fat_entries[i].name);
         entries[i].size = fat_entries[i].size;
         entries[i].is_directory = fat_entries[i].is_directory;
         entries[i].write_date = fat_entries[i].write_date;
@@ -2343,7 +2331,7 @@ bool fat32_mkdir(const char *path) {
     }
     
     entry->used = true;
-    fs_strcpy(entry->full_path, normalized);
+    strcpy(entry->full_path, normalized);
     extract_filename(normalized, entry->filename);
     extract_parent_path(normalized, entry->parent_path);
     entry->start_cluster = ramfs_allocate_cluster();
@@ -2456,7 +2444,7 @@ int fat32_get_info(const char *path, FAT32_FileInfo *info) {
         vfs_dirent_t v_info;
         int res = vfs_get_info(path, &v_info);
         if (res == 0) {
-            fs_strcpy(info->name, v_info.name);
+            strcpy(info->name, v_info.name);
             info->size = v_info.size;
             info->is_directory = v_info.is_directory;
             info->start_cluster = v_info.start_cluster;
@@ -2480,7 +2468,7 @@ int fat32_get_info(const char *path, FAT32_FileInfo *info) {
             fat32_normalize_path(p, normalized);
             FileEntry *entry = ramfs_find_file(normalized);
             if (entry) {
-                fs_strcpy(info->name, entry->filename);
+                strcpy(info->name, entry->filename);
                 info->size = entry->size;
                 info->is_directory = (entry->attributes & ATTR_DIRECTORY) != 0;
                 info->start_cluster = entry->start_cluster;
@@ -2576,30 +2564,30 @@ bool fat32_rename(const char *old_path, const char *new_path) {
     // Check destination
     if (ramfs_find_file(new_path)) { spinlock_release_irqrestore(&ramfs_lock, rflags); return false; }
 
-    size_t old_len = fs_strlen(old_path);
+    size_t old_len = strlen(old_path);
     // Logic from original rename...
     char *suffix = (char*)kmalloc(FAT32_MAX_PATH);
     if (!suffix) { spinlock_release_irqrestore(&ramfs_lock, rflags); return false; }
 
     for (FileEntry *n = file_list_head; n; n = n->next) {
         if (strcmp(n->full_path, old_path) == 0) {
-            fs_strcpy(n->full_path, new_path);
+            strcpy(n->full_path, new_path);
             extract_filename(new_path, n->filename);
             extract_parent_path(new_path, n->parent_path);
-        } else if (fs_strlen(n->full_path) > old_len &&
+        } else if (strlen(n->full_path) > old_len &&
                    fs_starts_with(n->full_path, old_path) &&
                    n->full_path[old_len] == '/') {
-            fs_strcpy(suffix, n->full_path + old_len);
-            fs_strcpy(n->full_path, new_path);
+            strcpy(suffix, n->full_path + old_len);
+            strcpy(n->full_path, new_path);
             fs_strcat(n->full_path, suffix);
         }
         if (strcmp(n->parent_path, old_path) == 0) {
-            fs_strcpy(n->parent_path, new_path);
-        } else if (fs_strlen(n->parent_path) > old_len &&
+            strcpy(n->parent_path, new_path);
+        } else if (strlen(n->parent_path) > old_len &&
                    fs_starts_with(n->parent_path, old_path) &&
                    n->parent_path[old_len] == '/') {
-            fs_strcpy(suffix, n->parent_path + old_len);
-            fs_strcpy(n->parent_path, new_path);
+            strcpy(suffix, n->parent_path + old_len);
+            strcpy(n->parent_path, new_path);
             fs_strcat(n->parent_path, suffix);
         }
     }
@@ -2660,7 +2648,7 @@ int fat32_list_directory(const char *path, FAT32_FileInfo *entries, int max_entr
         
         int count = vfs_list_directory(path, v_entries, max_entries, 0);
         for (int i = 0; i < count; i++) {
-            fs_strcpy(entries[i].name, v_entries[i].name);
+            strcpy(entries[i].name, v_entries[i].name);
             entries[i].size = v_entries[i].size;
             entries[i].is_directory = v_entries[i].is_directory;
             entries[i].start_cluster = v_entries[i].start_cluster;
@@ -2685,7 +2673,7 @@ int fat32_list_directory(const char *path, FAT32_FileInfo *entries, int max_entr
         
         for (FileEntry *_n = file_list_head; _n && count < max_entries; _n = _n->next) {
                 if (strcmp(_n->parent_path, normalized) != 0) continue;
-                fs_strcpy(entries[count].name, _n->filename);
+                strcpy(entries[count].name, _n->filename);
                 entries[count].size = _n->size;
                 entries[count].is_directory = (_n->attributes & ATTR_DIRECTORY) != 0;
                 entries[count].start_cluster = _n->start_cluster;
@@ -2726,11 +2714,11 @@ bool fat32_chdir(const char *path) {
              char *normalized = (char*)kmalloc(FAT32_MAX_PATH);
              if (normalized) {
                  fat32_normalize_path(p, normalized);
-                 fs_strcpy(current_dir, normalized);
+                 strcpy(current_dir, normalized);
                  kfree(normalized);
              }
          } else {
-             fs_strcpy(current_dir, p); 
+             strcpy(current_dir, p); 
              if (current_dir[0] != '/') {
 
              }
@@ -2752,7 +2740,7 @@ void fat32_get_current_dir(char *buffer, int size) {
     buffer[1] = ':';
     len = 2;
     
-    int dir_len = fs_strlen(current_dir);
+    int dir_len = strlen(current_dir);
     if (len + dir_len >= size) dir_len = size - len - 1;
     
     for (int i = 0; i < dir_len; i++) {

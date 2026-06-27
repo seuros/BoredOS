@@ -932,6 +932,16 @@ void process_kill_by_tty(int tty_id) {
     }
 }
 
+static void process_release_shm(process_t *proc) {
+    for (uint32_t i = 0; i < proc->shm_mapping_count; i++) {
+        if (proc->shm_mappings[i].seg) {
+            shm_unref((shm_segment_t *)proc->shm_mappings[i].seg);
+            proc->shm_mappings[i].seg = NULL;
+        }
+    }
+    proc->shm_mapping_count = 0;
+}
+
 static void process_cleanup_inner(process_t *proc) {
     if (!proc || proc->pid == 0xFFFFFFFF) return;
 
@@ -952,14 +962,7 @@ static void process_cleanup_inner(process_t *proc) {
     }
     proc->mmap_allocation_count = 0;
 
-    // Cleanup SHM mappings
-    for (uint32_t i = 0; i < proc->shm_mapping_count; i++) {
-        if (proc->shm_mappings[i].seg) {
-            shm_unref((shm_segment_t *)proc->shm_mappings[i].seg);
-            proc->shm_mappings[i].seg = NULL;
-        }
-    }
-    proc->shm_mapping_count = 0;
+    process_release_shm(proc);
 
     if (proc->is_terminal_proc && proc->tty_id >= 0) {
         extern void tty_set_blit_enabled_for_id(int id, bool enabled);
@@ -1394,13 +1397,7 @@ int process_exec_replace_current(registers_t *regs, const char* filepath, const 
     proc->mmap_current = 0x50000000;
     proc->mmap_allocation_count = 0;
     for (int i = 0; i < 16; i++) proc->mmap_allocations[i] = NULL;
-    for (uint32_t i = 0; i < proc->shm_mapping_count; i++) {
-        if (proc->shm_mappings[i].seg) {
-            shm_unref((shm_segment_t *)proc->shm_mappings[i].seg);
-            proc->shm_mappings[i].seg = NULL;
-        }
-    }
-    proc->shm_mapping_count = 0;
+    process_release_shm(proc);
     for (int i = 0; i < 32; i++) {
         proc->shm_mappings[i].addr = 0;
         proc->shm_mappings[i].length = 0;

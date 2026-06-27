@@ -5,22 +5,12 @@
 #include "disk.h"
 #include <stddef.h>
 #include "memory_manager.h"
+#include "kutils.h"
 
 extern void serial_write(const char *str);
 extern void serial_write_num(uint64_t num);
 
 // Internal helpers
-
-static void mf_memset(void *dst, int val, int len) {
-    unsigned char *p = (unsigned char *)dst;
-    while (len-- > 0) *p++ = (unsigned char)val;
-}
-
-static void mf_memcpy(void *dst, const void *src, int len) {
-    unsigned char *d = (unsigned char *)dst;
-    const unsigned char *s = (const unsigned char *)src;
-    while (len-- > 0) *d++ = *s++;
-}
 
 static void mf_strncpy(char *dst, const char *src, int n) {
     int i = 0;
@@ -119,12 +109,12 @@ int mkfs_fat32_format(Disk *disk, uint32_t sector_count, const char *label) {
     }
 
     FAT32_BPB *bpb = (FAT32_BPB *)buf;
-    mf_memset(bpb, 0, 512);
+    memset(bpb, 0, 512);
 
     bpb->jump_boot[0] = 0xEB;
     bpb->jump_boot[1] = 0x58;
     bpb->jump_boot[2] = 0x90;
-    mf_memcpy(bpb->oem_name, "MSDOS5.0", 8);
+    memcpy(bpb->oem_name, "MSDOS5.0", 8);
     bpb->bytes_per_sector    = 512;
     bpb->sectors_per_cluster = spc;
     bpb->reserved_sector_count = (uint16_t)reserved_sectors;
@@ -159,8 +149,8 @@ int mkfs_fat32_format(Disk *disk, uint32_t sector_count, const char *label) {
         if (c >= 'a' && c <= 'z') c -= 32;
         upper_label[i] = c;
     }
-    mf_memcpy(bpb->volume_label, upper_label, 11);
-    mf_memcpy(bpb->fs_type, "FAT32   ", 8);
+    memcpy(bpb->volume_label, upper_label, 11);
+    memcpy(bpb->fs_type, "FAT32   ", 8);
 
     /* Boot sector signature */
     bpb->boot_signature = 0xAA55;
@@ -173,7 +163,7 @@ int mkfs_fat32_format(Disk *disk, uint32_t sector_count, const char *label) {
     }
 
     FAT32_FSInfo *fsinfo = (FAT32_FSInfo *)buf;
-    mf_memset(fsinfo, 0, 512);
+    memset(fsinfo, 0, 512);
     fsinfo->lead_sig   = 0x41615252;
     fsinfo->struct_sig = 0x61417272;
     fsinfo->free_count = 0xFFFFFFFF; 
@@ -186,9 +176,9 @@ int mkfs_fat32_format(Disk *disk, uint32_t sector_count, const char *label) {
         return -1;
     }
     FAT32_BPB *bpb2 = (FAT32_BPB *)buf;
-    mf_memset(bpb2, 0, 512);
-    mf_memcpy(bpb2->jump_boot, "\xEB\x58\x90", 3);
-    mf_memcpy(bpb2->oem_name, "MSDOS5.0", 8);
+    memset(bpb2, 0, 512);
+    memcpy(bpb2->jump_boot, "\xEB\x58\x90", 3);
+    memcpy(bpb2->oem_name, "MSDOS5.0", 8);
     bpb2->bytes_per_sector    = 512;
     bpb2->sectors_per_cluster = spc;
     bpb2->reserved_sector_count = (uint16_t)reserved_sectors;
@@ -210,8 +200,8 @@ int mkfs_fat32_format(Disk *disk, uint32_t sector_count, const char *label) {
     bpb2->drive_number        = 0x80;
     bpb2->boot_sig            = 0x29;
     bpb2->volume_id           = 0x12345678;
-    mf_memcpy(bpb2->volume_label, upper_label, 11);
-    mf_memcpy(bpb2->fs_type, "FAT32   ", 8);
+    memcpy(bpb2->volume_label, upper_label, 11);
+    memcpy(bpb2->fs_type, "FAT32   ", 8);
     bpb2->boot_signature = 0xAA55;
 
     if (disk->write_sector(disk, 6, buf) != 0) {
@@ -221,7 +211,7 @@ int mkfs_fat32_format(Disk *disk, uint32_t sector_count, const char *label) {
     }
 
     FAT32_FSInfo *fsinfo2 = (FAT32_FSInfo *)buf;
-    mf_memset(fsinfo2, 0, 512);
+    memset(fsinfo2, 0, 512);
     fsinfo2->lead_sig   = 0x41615252;
     fsinfo2->struct_sig = 0x61417272;
     fsinfo2->free_count = 0xFFFFFFFF;
@@ -235,7 +225,7 @@ int mkfs_fat32_format(Disk *disk, uint32_t sector_count, const char *label) {
     }
 
     /* Zero both FATs */
-    mf_memset(buf, 0, 512);
+    memset(buf, 0, 512);
     for (uint32_t f = 0; f < num_fats; f++) {
         uint32_t fat_start = reserved_sectors + (f * sectors_per_fat);
         for (uint32_t s = 0; s < sectors_per_fat; s++) {
@@ -248,7 +238,7 @@ int mkfs_fat32_format(Disk *disk, uint32_t sector_count, const char *label) {
     }
 
     /* Write markers to both FATs */
-    mf_memset(buf, 0, 512);
+    memset(buf, 0, 512);
     uint32_t *fat_buf = (uint32_t *)buf;
     fat_buf[0] = 0x0FFFFFF8; // Media type
     fat_buf[1] = 0x0FFFFFFF; // Reserved
@@ -264,7 +254,7 @@ int mkfs_fat32_format(Disk *disk, uint32_t sector_count, const char *label) {
     }
 
     /* Zero root cluster */
-    mf_memset(buf, 0, 512);
+    memset(buf, 0, 512);
     uint32_t root_start = reserved_sectors + num_fats * sectors_per_fat;
     for (uint32_t s = 0; s < (uint32_t)spc; s++) {
         if (disk->write_sector(disk, root_start + s, buf) != 0) {
@@ -283,7 +273,7 @@ int mkfs_fat32_format(Disk *disk, uint32_t sector_count, const char *label) {
     serial_write(disk->devname);
     serial_write(" label=");
     char lb[12];
-    mf_memcpy(lb, upper_label, 11);
+    memcpy(lb, upper_label, 11);
     lb[11] = 0;
     for (int i = 10; i >= 0 && lb[i] == ' '; i--) lb[i] = 0;
     serial_write(lb);
