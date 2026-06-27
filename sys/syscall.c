@@ -2080,13 +2080,6 @@ static void disk_k_strcpy(char *dst, const char *src, int max) {
   dst[i] = 0;
 }
 
-static int disk_k_strcmp(const char *a, const char *b) {
-  while (*a && *a == *b) {
-    a++;
-    b++;
-  }
-  return (unsigned char)*a - (unsigned char)*b;
-}
 
 static uint64_t sys_cmd_disk_get_count(const syscall_args_t *args) {
   (void)args;
@@ -2192,7 +2185,7 @@ static uint64_t sys_cmd_disk_sync(const syscall_args_t *args) {
   int mc = vfs_get_mount_count();
   for (int i = 0; i < mc; i++) {
     vfs_mount_t *m = vfs_get_mount(i);
-    if (m && m->active && disk_k_strcmp(m->path, mountpoint) == 0) {
+    if (m && m->active && strcmp(m->path, mountpoint) == 0) {
       Disk *d = disk_get_by_name(m->device);
       if (d)
         return (uint64_t)disk_sync(d);
@@ -2219,7 +2212,7 @@ static uint64_t sys_cmd_disk_replace_kernel(const syscall_args_t *args) {
     dest_path[mi++] = suffix[i];
   dest_path[mi] = 0;
 
-  if (disk_k_strcmp(src_path, dest_path) == 0) {
+  if (strcmp(src_path, dest_path) == 0) {
     serial_write("[KUP] Error: source and destination are the same file\n");
     return (uint64_t)-1;
   }

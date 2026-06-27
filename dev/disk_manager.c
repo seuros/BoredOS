@@ -10,6 +10,7 @@
 #include "fat32.h"
 #include "spinlock.h"
 #include <stddef.h>
+#include "kutils.h"
 
 static spinlock_t ide_lock = SPINLOCK_INIT;
 
@@ -31,10 +32,6 @@ static void dm_strcpy(char *dest, const char *src) {
     *dest = 0;
 }
 
-static int dm_strcmp(const char *a, const char *b) {
-    while (*a && *a == *b) { a++; b++; }
-    return (unsigned char)*a - (unsigned char)*b;
-}
 
 static int dm_strlen(const char *s) {
     int n = 0;
@@ -465,7 +462,7 @@ void disk_register_partition(Disk *parent, uint32_t lba_offset, uint32_t sector_
 Disk* disk_get_by_name(const char *devname) {
     if (!devname) return NULL;
     for (int i = 0; i < disk_count; i++) {
-        if (dm_strcmp(disks[i]->devname, devname) == 0) {
+        if (strcmp(disks[i]->devname, devname) == 0) {
             return disks[i];
         }
     }

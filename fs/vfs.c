@@ -36,10 +36,6 @@ static void vfs_strcpy(char *d, const char *s) {
     while ((*d++ = *s++));
 }
 
-static int vfs_strcmp(const char *a, const char *b) {
-    while (*a && *a == *b) { a++; b++; }
-    return (unsigned char)*a - (unsigned char)*b;
-}
 
 static int vfs_strncmp(const char *a, const char *b, int n) {
     for (int i = 0; i < n; i++) {
@@ -223,7 +219,7 @@ bool vfs_mount(const char *mount_path, const char *device, const char *fs_type,
     }
 
     for (int i = 0; i < mount_count; i++) {
-        if (mounts[i].active && vfs_strcmp(mounts[i].path, mount_path) == 0) {
+        if (mounts[i].active && strcmp(mounts[i].path, mount_path) == 0) {
             spinlock_release_irqrestore(&vfs_lock, flags);
             serial_write("[VFS] ERROR: Mount point already in use: ");
             serial_write(mount_path);
@@ -259,7 +255,7 @@ bool vfs_umount(const char *mount_path) {
     uint64_t flags = spinlock_acquire_irqsave(&vfs_lock);
 
     for (int i = 0; i < mount_count; i++) {
-        if (mounts[i].active && vfs_strcmp(mounts[i].path, mount_path) == 0) {
+        if (mounts[i].active && strcmp(mounts[i].path, mount_path) == 0) {
             for (int j = 0; j < VFS_MAX_OPEN_FILES; j++) {
                 if (open_files[j].valid && open_files[j].mount == &mounts[i]) {
                     if (mounts[i].ops->close) {
@@ -348,7 +344,7 @@ vfs_file_t* vfs_open(const char *path, const char *mode) {
         // Handle Keyboard devices: /dev/keyboard (active) or /dev/keyboardX
         if (vfs_starts_with(devname, "keyboard")) {
             int id = 0;
-            if (vfs_strcmp(devname, "keyboard") == 0) {
+            if (strcmp(devname, "keyboard") == 0) {
                 id = tty_get_active_id() + 1;
             } else {
                 id = atoi(devname + 8);
@@ -370,7 +366,7 @@ vfs_file_t* vfs_open(const char *path, const char *mode) {
         // Handle Mouse devices: /dev/mouse (active) or /dev/mouseX
         if (vfs_starts_with(devname, "mouse")) {
             int id = 0;
-            if (vfs_strcmp(devname, "mouse") == 0) {
+            if (strcmp(devname, "mouse") == 0) {
                 id = tty_get_active_id() + 1;
             } else {
                 id = atoi(devname + 5);
@@ -392,7 +388,7 @@ vfs_file_t* vfs_open(const char *path, const char *mode) {
         // Handle Framebuffer devices: /dev/fb0 or /dev/fbX
         if (vfs_starts_with(devname, "fb")) {
             int id = 0;
-            if (vfs_strcmp(devname, "fb0") == 0 || vfs_strcmp(devname, "fb") == 0) {
+            if (strcmp(devname, "fb0") == 0 || strcmp(devname, "fb") == 0) {
                 id = 0;
             } else if (devname[2] >= '0' && devname[2] <= '9') {
                 id = atoi(devname + 2);
@@ -415,7 +411,7 @@ vfs_file_t* vfs_open(const char *path, const char *mode) {
         }
 
         // Handle PC speaker device: /dev/pcsk 
-        if (vfs_strcmp(devname, "pcsk") == 0) {
+        if (strcmp(devname, "pcsk") == 0) {
             vfs_file_t *vf = vfs_alloc_file();
             if (vf) {
                 vf->mount = &mounts[0];
@@ -429,7 +425,7 @@ vfs_file_t* vfs_open(const char *path, const char *mode) {
         }
 
         // Handle DSP (audio) device: /dev/dsp
-        if (vfs_strcmp(devname, "dsp") == 0) {
+        if (strcmp(devname, "dsp") == 0) {
             if (!ac97_present()) {
                 spinlock_release_irqrestore(&vfs_lock, flags);
                 return NULL;
@@ -447,7 +443,7 @@ vfs_file_t* vfs_open(const char *path, const char *mode) {
         }
 
         // Handle Mixer device: /dev/mixer
-        if (vfs_strcmp(devname, "mixer") == 0) {
+        if (strcmp(devname, "mixer") == 0) {
             if (!ac97_present()) {
                 spinlock_release_irqrestore(&vfs_lock, flags);
                 return NULL;
@@ -1067,7 +1063,7 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max, int off
         uint64_t v_flags = spinlock_acquire_irqsave(&vfs_lock);
         for (int i = 0; i < mount_count; i++) {
             if (!mounts[i].active) continue;
-            if (vfs_strcmp(mounts[i].path, normalized) == 0) continue; 
+            if (strcmp(mounts[i].path, normalized) == 0) continue; 
 
             if (vfs_path_is_parent(normalized, mounts[i].path)) {
                 const char *sub = mounts[i].path + vfs_strlen(normalized);
@@ -1084,7 +1080,7 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max, int off
 
                     bool found = false;
                     for (int k = 0; k < count; k++) {
-                        if (vfs_strcmp(entries[k].name, comp) == 0) {
+                        if (strcmp(entries[k].name, comp) == 0) {
                             found = true;
                             break;
                         }
@@ -1103,12 +1099,12 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max, int off
         spinlock_release_irqrestore(&vfs_lock, v_flags);
 
         // Special case: Ensure "dev", "sys", "proc" are visible in "/"
-        if (vfs_strcmp(normalized, "/") == 0) {
+        if (strcmp(normalized, "/") == 0) {
             const char *virtual_dirs[] = {"dev", "sys", "proc"};
             for (int v = 0; v < 3; v++) {
                 bool found = false;
                 for (int i = 0; i < count; i++) {
-                    if (vfs_strcmp(entries[i].name, virtual_dirs[v]) == 0) {
+                    if (strcmp(entries[i].name, virtual_dirs[v]) == 0) {
                         found = true;
                         break;
                     }
@@ -1124,7 +1120,7 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max, int off
         }
 
         // Special case: /dev listing for block devices and TTYs
-        if (vfs_strcmp(normalized, "/dev") == 0) {
+        if (strcmp(normalized, "/dev") == 0) {
             // TTY devices
             for (int i = 0; i < TTY_COUNT && count < max; i++) {
                 char name[16];
@@ -1207,7 +1203,7 @@ int vfs_list_directory(const char *path, vfs_dirent_t *entries, int max, int off
                     // Ensure unique name (disk_manager_scan might register partitions)
                     bool found = false;
                     for (int k = 0; k < count; k++) {
-                        if (vfs_strcmp(entries[k].name, d->devname) == 0) {
+                        if (strcmp(entries[k].name, d->devname) == 0) {
                             found = true;
                             break;
                         }
@@ -1255,7 +1251,7 @@ bool vfs_rmdir(const char *path) {
     vfs_normalize_process_path(path, normalized);
 
     if (normalized[0] == '/' && normalized[1] == '\0') return false;
-    if (vfs_strcmp(normalized, "/dev") == 0) return false;
+    if (strcmp(normalized, "/dev") == 0) return false;
 
     const char *rel_path = NULL;
     vfs_mount_t *mount = vfs_resolve_mount(normalized, &rel_path);
@@ -1277,7 +1273,7 @@ bool vfs_delete(const char *path) {
     vfs_normalize_process_path(path, normalized);
 
     if (normalized[0] == '/' && normalized[1] == '\0') return false;
-    if (vfs_strcmp(normalized, "/dev") == 0) return false;
+    if (strcmp(normalized, "/dev") == 0) return false;
 
     if (vfs_starts_with(normalized, "/dev/shm/")) {
         const char *shm_name = normalized + 9;
@@ -1338,28 +1334,28 @@ bool vfs_exists(const char *path) {
     }
     spinlock_release_irqrestore(&vfs_lock, flags_vfs);
 
-    if (vfs_strcmp(normalized, "/dev") == 0 || 
-        vfs_strcmp(normalized, "/sys") == 0 || 
-        vfs_strcmp(normalized, "/proc") == 0) return true;
+    if (strcmp(normalized, "/dev") == 0 || 
+        strcmp(normalized, "/sys") == 0 || 
+        strcmp(normalized, "/proc") == 0) return true;
 
     if (vfs_starts_with(normalized, "/dev/")) {
         const char *dev = normalized + 5;
         // Check for framebuffer device
-        if (vfs_strcmp(dev, "fb0") == 0 || vfs_strcmp(dev, "fb") == 0) {
+        if (strcmp(dev, "fb0") == 0 || strcmp(dev, "fb") == 0) {
             vfs_framebuffer_info_t fb = graphics_get_fb_params();
             return fb.address != NULL && fb.width > 0 && fb.height > 0;
         }
-        if (vfs_strcmp(dev, "keyboard") == 0 || vfs_starts_with(dev, "keyboard")) return true;
-        if (vfs_strcmp(dev, "mouse") == 0 || vfs_starts_with(dev, "mouse")) return true;
+        if (strcmp(dev, "keyboard") == 0 || vfs_starts_with(dev, "keyboard")) return true;
+        if (strcmp(dev, "mouse") == 0 || vfs_starts_with(dev, "mouse")) return true;
         if (vfs_starts_with(dev, "tty")) return true;
-        if (vfs_strcmp(dev, "pcsk") == 0) return true;
-        if (vfs_strcmp(dev, "dsp") == 0) {
+        if (strcmp(dev, "pcsk") == 0) return true;
+        if (strcmp(dev, "dsp") == 0) {
             return ac97_present();
         }
-        if (vfs_strcmp(dev, "mixer") == 0) {
+        if (strcmp(dev, "mixer") == 0) {
             return ac97_present();
         }
-        if (vfs_strcmp(dev, "shm") == 0) return true;
+        if (strcmp(dev, "shm") == 0) return true;
         if (vfs_starts_with(dev, "shm/")) {
             extern bool shm_exists(const char *name);
             return shm_exists(dev + 4);
@@ -1387,7 +1383,7 @@ bool vfs_is_directory(const char *path) {
     uint64_t flags_vfs = spinlock_acquire_irqsave(&vfs_lock);
     for (int i = 0; i < mount_count; i++) {
         if (mounts[i].active && vfs_path_is_parent(normalized, mounts[i].path)) {
-            if (vfs_strcmp(mounts[i].path, normalized) == 0) {
+            if (strcmp(mounts[i].path, normalized) == 0) {
                 spinlock_release_irqrestore(&vfs_lock, flags_vfs);
                 return true;
             }
@@ -1398,15 +1394,15 @@ bool vfs_is_directory(const char *path) {
     }
     spinlock_release_irqrestore(&vfs_lock, flags_vfs);
 
-    if (vfs_strcmp(normalized, "/dev") == 0 || 
-        vfs_strcmp(normalized, "/dev/shm") == 0 || 
-        vfs_strcmp(normalized, "/sys") == 0 || 
-        vfs_strcmp(normalized, "/proc") == 0) return true;
+    if (strcmp(normalized, "/dev") == 0 || 
+        strcmp(normalized, "/dev/shm") == 0 || 
+        strcmp(normalized, "/sys") == 0 || 
+        strcmp(normalized, "/proc") == 0) return true;
 
     if (vfs_starts_with(normalized, "/dev/")) {
         const char *dev = normalized + 5;
         // Check if it's a framebuffer device (not a directory)
-        if (vfs_strcmp(dev, "fb0") == 0 || vfs_strcmp(dev, "fb") == 0) return false;
+        if (strcmp(dev, "fb0") == 0 || strcmp(dev, "fb") == 0) return false;
         Disk *d = disk_get_by_name(dev);
         if (d) return false;
     }
@@ -1457,9 +1453,9 @@ int vfs_get_info(const char *path, vfs_dirent_t *info) {
         return 0;
     }
 
-    if (vfs_strcmp(normalized, "/dev") == 0 || 
-        vfs_strcmp(normalized, "/sys") == 0 || 
-        vfs_strcmp(normalized, "/proc") == 0) {
+    if (strcmp(normalized, "/dev") == 0 || 
+        strcmp(normalized, "/sys") == 0 || 
+        strcmp(normalized, "/proc") == 0) {
         const char *name = normalized + 1;
         vfs_strcpy(info->name, name);
         info->size = 0;
@@ -1473,7 +1469,7 @@ int vfs_get_info(const char *path, vfs_dirent_t *info) {
     uint64_t flags_vfs = spinlock_acquire_irqsave(&vfs_lock);
     for (int i = 0; i < mount_count; i++) {
         if (mounts[i].active && vfs_path_is_parent(normalized, mounts[i].path)) {
-            if (vfs_strcmp(mounts[i].path, normalized) != 0) {
+            if (strcmp(mounts[i].path, normalized) != 0) {
                 const char *p = normalized + vfs_strlen(normalized);
                 while (p > normalized && *(p-1) != '/') p--;
                 vfs_strcpy(info->name, p);

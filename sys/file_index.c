@@ -5,6 +5,7 @@
 #include "vfs.h"
 #include "memory_manager.h"
 #include "spinlock.h"
+#include "kutils.h"
 #include <stddef.h>
 
 static file_index_t g_file_index = {0};
@@ -21,10 +22,6 @@ static void str_copy(char *d, const char *s) {
     while ((*d++ = *s++));
 }
 
-static int str_cmp(const char *a, const char *b) {
-    while (*a && *a == *b) { a++; b++; }
-    return (unsigned char)*a - (unsigned char)*b;
-}
 
 static void str_cat(char *d, const char *s) {
     while (*d) d++;
@@ -110,10 +107,10 @@ static void index_walk_directory(const char *path, int depth) {
         }
         
         
-        if (str_cmp(entry->name, ".color") == 0 || 
-            str_cmp(entry->name, ".origin") == 0 ||
-            str_cmp(entry->name, ".") == 0 ||
-            str_cmp(entry->name, "..") == 0) {
+        if (strcmp(entry->name, ".color") == 0 || 
+            strcmp(entry->name, ".origin") == 0 ||
+            strcmp(entry->name, ".") == 0 ||
+            strcmp(entry->name, "..") == 0) {
             continue;
         }
         
@@ -403,7 +400,7 @@ bool file_index_add_entry(const char *path, uint32_t size, uint32_t mod_time_low
     uint64_t flags = spinlock_acquire_irqsave(&g_index_lock);
     
     for (int i = 0; i < g_file_index.count; i++) {
-        if (str_cmp(g_file_index.entries[i].path, path) == 0) {
+        if (strcmp(g_file_index.entries[i].path, path) == 0) {
             g_file_index.entries[i].size = size;
             g_file_index.entries[i].mod_time_low = mod_time_low;
             g_file_index.entries[i].mod_time_high = mod_time_high;
@@ -433,7 +430,7 @@ bool file_index_remove_entry(const char *path) {
     uint64_t flags = spinlock_acquire_irqsave(&g_index_lock);
     
     for (int i = 0; i < g_file_index.count; i++) {
-        if (str_cmp(g_file_index.entries[i].path, path) == 0) {
+        if (strcmp(g_file_index.entries[i].path, path) == 0) {
             for (int j = i; j < g_file_index.count - 1; j++) {
                 g_file_index.entries[j] = g_file_index.entries[j + 1];
             }
