@@ -38,14 +38,6 @@ typedef struct {
 
 static ahci_port_state_t ports[MAX_AHCI_PORTS];
 
-// ============================================================================
-// String Helpers
-// ============================================================================
-
-static void ahci_strcpy(char *d, const char *s) {
-    while ((*d++ = *s++));
-}
-
 // Kernel virtual to physical address conversion
 extern uint64_t v2p(uint64_t vaddr);
 extern uint64_t p2v(uint64_t paddr);
@@ -538,10 +530,10 @@ void ahci_init(void) {
                 uint32_t sectors = 0;
                 char model[64];
     if (ahci_identify(i, &sectors, model) == 0) {
-        ahci_strcpy(disk->label, model);
+        strcpy(disk->label, model);
         disk->total_sectors = sectors;
     } else {
-        ahci_strcpy(disk->label, "SATA Drive");
+        strcpy(disk->label, "SATA Drive");
         disk->total_sectors = 0;
     }
 
