@@ -300,16 +300,14 @@ static int scan_pci_for_lpss_i2c(void) {
         memcpy(p, prefix, sizeof(prefix) - 1);
         p += sizeof(prefix) - 1;
 
-        itoa_hex(dev->bus, tmp);
-        if (tmp[1] == '\0') { *p++ = '0'; *p++ = tmp[0]; } else { *p++ = tmp[0]; *p++ = tmp[1]; }
+        *p++ = "0123456789abcdef"[(dev->bus >> 4) & 0xF];
+        *p++ = "0123456789abcdef"[dev->bus & 0xF];
         *p++ = ':';
-
-        itoa_hex(dev->device, tmp);
-        if (tmp[1] == '\0') { *p++ = '0'; *p++ = tmp[0]; } else { *p++ = tmp[0]; *p++ = tmp[1]; }
+        *p++ = "0123456789abcdef"[(dev->device >> 4) & 0xF];
+        *p++ = "0123456789abcdef"[dev->device & 0xF];
         *p++ = '.';
-
-        itoa_hex(dev->function, tmp);
-        if (tmp[1] == '\0') { *p++ = '0'; *p++ = tmp[0]; } else { *p++ = tmp[0]; *p++ = tmp[1]; }
+        *p++ = "0123456789abcdef"[(dev->function >> 4) & 0xF];
+        *p++ = "0123456789abcdef"[dev->function & 0xF];
         *p = '\0';
 
         // Initialize LPSS private registers
