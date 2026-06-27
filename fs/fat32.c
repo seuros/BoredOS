@@ -9,6 +9,7 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include "spinlock.h"
+#include "kutils.h"
 
 // Locks for FAT32 operations (SMP safety)
 static spinlock_t ramfs_lock = SPINLOCK_INIT; // Protects the RAM-based filesystem (/)
@@ -118,13 +119,6 @@ static void fs_strcpy(char *dest, const char *src) {
     *dest = 0;
 }
 
-static int fs_strcmp(const char *s1, const char *s2) {
-    while (*s1 && (*s1 == *s2)) {
-        s1++;
-        s2++;
-    }
-    return *(const unsigned char*)s1 - *(const unsigned char*)s2;
-}
 
 static void fs_strcat(char *dest, const char *src) {
     while (*dest) dest++;
@@ -237,9 +231,9 @@ void fat32_normalize_path(const char *path, char *normalized) {
         }
         component[j] = 0;
 
-        if (fs_strcmp(component, ".") == 0) {
+        if (strcmp(component, ".") == 0) {
             continue;
-        } else if (fs_strcmp(component, "..") == 0) {
+        } else if (strcmp(component, "..") == 0) {
             if (temp_len > 1) {
                 while (temp_len > 0 && temp[temp_len - 1] != '/') temp_len--;
                 if (temp_len > 1) temp_len--;
@@ -270,7 +264,7 @@ static FileEntry* ramfs_find_file(const char *path) {
     fat32_normalize_path(path, normalized);
     FileEntry *ret = NULL;
     for (FileEntry *n = file_list_head; n; n = n->next) {
-        if (fs_strcmp(n->full_path, normalized) == 0) {
+        if (strcmp(n->full_path, normalized) == 0) {
             ret = n;
             break;
         }
@@ -348,7 +342,7 @@ static uint32_t ramfs_allocate_cluster(void) {
 static int ramfs_count_files_in_dir(const char *normalized_path) {
     int count = 0;
     for (FileEntry *n = file_list_head; n; n = n->next) {
-        if (fs_strcmp(n->parent_path, normalized_path) == 0) count++;
+        if (strcmp(n->parent_path, normalized_path) == 0) count++;
     }
     return count;
 }
@@ -1560,12 +1554,12 @@ static int vfs_ramfs_readdir(void *fs_private, const char *rel_path, vfs_dirent_
     for (FileEntry *n = file_list_head; n && count < max; n = n->next) {
         bool match = false;
         if (n->filename[0] != '\0') {
-            if (fs_strcmp(n->parent_path, abs) == 0) match = true;
+            if (strcmp(n->parent_path, abs) == 0) match = true;
             
             if (!match && abs[0] == '/' && abs[1] == '\0') {
                 if (n->parent_path[0] == '\0' || 
-                    fs_strcmp(n->parent_path, "/") == 0 ||
-                    fs_strcmp(n->parent_path, "A:/") == 0) {
+                    strcmp(n->parent_path, "/") == 0 ||
+                    strcmp(n->parent_path, "A:/") == 0) {
                     match = true;
                 }
             }
@@ -1849,7 +1843,7 @@ static bool vfs_realfs_rmdir(void *fs_private, const char *rel_path) {
     FAT32_FileInfo child;
     bool ret = false;
 
-    if (!vol || !rel_path || rel_path[0] == '\0' || fs_strcmp(rel_path, "/") == 0) {
+    if (!vol || !rel_path || rel_path[0] == '\0' || strcmp(rel_path, "/") == 0) {
         return false;
     }
 
@@ -1914,7 +1908,7 @@ static bool vfs_realfs_exists(void *fs_private, const char *rel_path) {
 
 static bool vfs_realfs_is_dir(void *fs_private, const char *rel_path) {
     FAT32_Volume *vol = (FAT32_Volume*)fs_private;
-    if (fs_strcmp(rel_path, "/") == 0 || fs_strcmp(rel_path, "") == 0) return true;
+    if (strcmp(rel_path, "/") == 0 || strcmp(rel_path, "") == 0) return true;
     // Real implementation requires verifying DIR attribute
     uint64_t rflags = spinlock_acquire_irqsave(&vol->lock);
     FAT32_FileHandle *fh = realfs_open_from_vol((FAT32_Volume*)fs_private, rel_path, "r");
@@ -2420,7 +2414,7 @@ bool fat32_rmdir(const char *path) {
     }
 
     for (FileEntry *n = file_list_head; n; n = n->next) {
-        if (n != entry && fs_strcmp(n->parent_path, normalized) == 0) {
+        if (n != entry && strcmp(n->parent_path, normalized) == 0) {
             kfree(normalized);
             spinlock_release_irqrestore(&ramfs_lock, rflags);
             return false;
@@ -2522,7 +2516,7 @@ int fat32_get_info(const char *path, FAT32_FileInfo *info) {
                         info->size = fh->size;
                         info->start_cluster = fh->start_cluster;
                         
-                        if (fs_strcmp(p, "/") == 0 || fs_strcmp(p, "") == 0) {
+                        if (strcmp(p, "/") == 0 || strcmp(p, "") == 0) {
                             info->is_directory = 1;
                         } else {
                             // Temporary: Assume if it opens as "r" and it's not root, 
@@ -2605,7 +2599,7 @@ bool fat32_rename(const char *old_path, const char *new_path) {
     if (!suffix) { spinlock_release_irqrestore(&ramfs_lock, rflags); return false; }
 
     for (FileEntry *n = file_list_head; n; n = n->next) {
-        if (fs_strcmp(n->full_path, old_path) == 0) {
+        if (strcmp(n->full_path, old_path) == 0) {
             fs_strcpy(n->full_path, new_path);
             extract_filename(new_path, n->filename);
             extract_parent_path(new_path, n->parent_path);
@@ -2616,7 +2610,7 @@ bool fat32_rename(const char *old_path, const char *new_path) {
             fs_strcpy(n->full_path, new_path);
             fs_strcat(n->full_path, suffix);
         }
-        if (fs_strcmp(n->parent_path, old_path) == 0) {
+        if (strcmp(n->parent_path, old_path) == 0) {
             fs_strcpy(n->parent_path, new_path);
         } else if (fs_strlen(n->parent_path) > old_len &&
                    fs_starts_with(n->parent_path, old_path) &&
@@ -2707,7 +2701,7 @@ int fat32_list_directory(const char *path, FAT32_FileInfo *entries, int max_entr
         fat32_normalize_path(p, normalized);
         
         for (FileEntry *_n = file_list_head; _n && count < max_entries; _n = _n->next) {
-                if (fs_strcmp(_n->parent_path, normalized) != 0) continue;
+                if (strcmp(_n->parent_path, normalized) != 0) continue;
                 fs_strcpy(entries[count].name, _n->filename);
                 entries[count].size = _n->size;
                 entries[count].is_directory = (_n->attributes & ATTR_DIRECTORY) != 0;
