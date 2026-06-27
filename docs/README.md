@@ -54,7 +54,6 @@ The SDK and toolchain guides for creating your own `.elf` userland binaries.
 -   [`libc Reference`](appdev/libc_reference.md): Current libc headers, implemented APIs, and behavior notes.
 -   [`Raw Graphics Guide`](appdev/framebuffer_drawing.md): Developer guide to raw `/dev/fb0` drawing, screen layout queries, ioctls, memory mapping (`mmap`), and safe TTY mode restoration.
 -   [`Custom Apps`](appdev/custom_apps.md): A step-by-step tutorial on writing a new C application, editing the Makefile, and compiling/bundling it into the ISO.
--   [`ELF App Metadata`](appdev/elf_metadata.md): How to declare app descriptions using source annotations, how the build system embeds them into `.note.boredos.app` ELF sections, and how the kernel reads them at runtime.
 -   [`Example Apps`](appdev/examples/README.md): A collection of sample C applications ranging from basic terminal output to advanced direct framebuffer access and TCP networking.
 -   [`Native TCC`](appdev/tcc.md): How to use the Tiny C Compiler (TCC) to build and run C applications directly on BoredOS.
 -   [`Nova Protocol`](appdev/nova/nova_protocol.md): Detailed wire protocol formats and event layouts for the desktop compositor.

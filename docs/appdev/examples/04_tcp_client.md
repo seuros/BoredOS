@@ -88,7 +88,6 @@ int main(void) {
 3.  **Connection (`sys_tcp_connect`)**: We block the application thread while the OS performs the 3-way TCP handshake over port 80.
 4.  **Payload (`sys_tcp_send`)**: We format a compliant HTTP/1.1 payload representing a simple GET request for the root directory `/`.
 5.  **Chunked Receiving (`sys_tcp_recv`)**: The server's response might be larger than our `recv_buf` (512 bytes). Therefore, we loop. `sys_tcp_recv` blocks execution until data arrives. If it returns `0`, the remote server cleanly closed the connection (which happens automatically because we specified `Connection: close` in our request payload!).
-6.  **`BOREDOS_APP_DESC`**: Embedded into the compiled `.elf` as a BoredOS NOTE section, allowing diagnostic tools to query the application's purpose directly from the binary. See [`elf_metadata.md`](../elf_metadata.md) for full details.
 
 ## Running It
 

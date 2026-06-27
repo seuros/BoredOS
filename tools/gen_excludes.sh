@@ -26,10 +26,12 @@ for bup in "$PACKAGES_DIR"/*.bup; do
     CONFIG_DEST="/Library/conf"
     
     if [ -f "$TMP_DIR/MANIFEST.toml" ]; then
+        name_val=$(grep -E '^[[:space:]]*name[[:space:]]*=' "$TMP_DIR/MANIFEST.toml" | sed -E 's/.*=[[:space:]]*"([^"]*)".*/\1/')
         b_val=$(grep -E '^[[:space:]]*bin[[:space:]]*=' "$TMP_DIR/MANIFEST.toml" | sed -E 's/.*=[[:space:]]*"([^"]*)".*/\1/')
         a_val=$(grep -E '^[[:space:]]*assets[[:space:]]*=' "$TMP_DIR/MANIFEST.toml" | sed -E 's/.*=[[:space:]]*"([^"]*)".*/\1/')
         c_val=$(grep -E '^[[:space:]]*config[[:space:]]*=' "$TMP_DIR/MANIFEST.toml" | sed -E 's/.*=[[:space:]]*"([^"]*)".*/\1/')
         
+        if [ ! -z "$name_val" ]; then CONFIG_DEST="/Library/AppData/$name_val"; fi
         if [ ! -z "$b_val" ]; then BIN_DEST="$b_val"; fi
         if [ ! -z "$a_val" ]; then ASSETS_DEST="$a_val"; fi
         if [ ! -z "$c_val" ]; then CONFIG_DEST="$c_val"; fi
@@ -68,7 +70,7 @@ for bup in "$PACKAGES_DIR"/*.bup; do
         elif [[ "$line" == usr/share/applications/* ]]; then
             rel="${line_clean#usr/share/applications/}"
             [ -z "$rel" ] && continue
-            echo "/usr/share/applications/$rel" >> "$EXCLUDES_FILE"
+            echo "/Library/AppData/$name_val/$rel" >> "$EXCLUDES_FILE"
         fi
     done
     

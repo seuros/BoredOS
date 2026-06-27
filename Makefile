@@ -153,33 +153,10 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF) userland packages
 	@printf "$(YELLOW)[INITRD]$(RESET) Cleaning previous initrd directory...\n"
 	rm -rf $(BUILD_DIR)/initrd
 
-	@printf "$(YELLOW)[INITRD]$(RESET) Creating directory structure...\n"
-	mkdir -p $(BUILD_DIR)/initrd/bin
-	mkdir -p $(BUILD_DIR)/initrd/Library/images/Wallpapers
-	mkdir -p $(BUILD_DIR)/initrd/Library/images/icons/serenityicons/16x16
-	mkdir -p $(BUILD_DIR)/initrd/Library/images/icons/serenityicons/32x32
-	mkdir -p $(BUILD_DIR)/initrd/Library/Fonts/Emoji
-	mkdir -p $(BUILD_DIR)/initrd/Library/DOOM
-	mkdir -p $(BUILD_DIR)/initrd/Library/conf
-	mkdir -p $(BUILD_DIR)/initrd/Library/bsh
-	mkdir -p $(BUILD_DIR)/initrd/Library/BWM/Wallpaper
-	mkdir -p $(BUILD_DIR)/initrd/Library/art
-	mkdir -p $(BUILD_DIR)/initrd/Library/images/branding
-	mkdir -p $(BUILD_DIR)/initrd/docs
-	mkdir -p $(BUILD_DIR)/initrd/boot
-	mkdir -p $(BUILD_DIR)/initrd/mnt
-	mkdir -p $(BUILD_DIR)/initrd/dev
-	mkdir -p $(BUILD_DIR)/initrd/root/Desktop
-	mkdir -p $(BUILD_DIR)/initrd/root/Pictures
-	mkdir -p $(BUILD_DIR)/initrd/root/Documents
-	mkdir -p $(BUILD_DIR)/initrd/root/Downloads
-	mkdir -p $(BUILD_DIR)/initrd/etc
-
-	mkdir -p $(BUILD_DIR)/initrd/usr/lib/tcc/include
-	mkdir -p $(BUILD_DIR)/initrd/usr/local/include
-	mkdir -p $(BUILD_DIR)/initrd/usr/include/sys
-	mkdir -p $(BUILD_DIR)/initrd/usr/include/libc
-	mkdir -p $(BUILD_DIR)/initrd/usr/lib
+	mkdir -p $(BUILD_DIR)/initrd
+	cp -R Base/. $(BUILD_DIR)/initrd/
+	@find $(BUILD_DIR)/initrd -name .gitkeep -delete
+	@find $(BUILD_DIR)/initrd -name .DS_Store -delete
 
 	@printf "$(YELLOW)[COPY]$(RESET) Limine binaries + kernel for installer...\n"
 	@if [ -f limine/BOOTX64.EFI ]; then cp limine/BOOTX64.EFI    $(BUILD_DIR)/initrd/boot/; fi
@@ -217,30 +194,6 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF) userland packages
 	@cp build/sdk/lib/crtn.o $(BUILD_DIR)/initrd/usr/lib/crtn.o
 	@cp -r build/sdk/include/. $(BUILD_DIR)/initrd/usr/include/
 
-
-	@printf "$(YELLOW)[COPY]$(RESET) Branding assets...\n"
-	@cp -r branding/* $(BUILD_DIR)/initrd/Library/images/branding/
-
-	@printf "$(YELLOW)[COPY]$(RESET) bsh configuration...\n"
-	@if [ -f library/bsh/bshrc ]; then printf "  -> bshrc\n"; cp library/bsh/bshrc $(BUILD_DIR)/initrd/Library/bsh/; fi
-	@if [ -f library/bsh/startup.bsh ]; then printf "  -> startup.bsh\n"; cp library/bsh/startup.bsh $(BUILD_DIR)/initrd/Library/bsh/; fi
-	@if [ -f library/bsh/boot.bsh ]; then printf "  -> boot.bsh\n"; cp library/bsh/boot.bsh $(BUILD_DIR)/initrd/Library/bsh/; fi
-	@if [ -f library/conf/sysfetch.cfg ]; then printf "  -> sysfetch.cfg\n"; cp library/conf/sysfetch.cfg $(BUILD_DIR)/initrd/Library/conf/; fi
-	@if [ -f library/conf/taskbar.conf ]; then printf "  -> taskbar.conf\n"; cp library/conf/taskbar.conf $(BUILD_DIR)/initrd/Library/conf/; fi
-	@if [ -f library/conf/wallpaper.conf ]; then printf "  -> wallpaper.conf\n"; cp library/conf/wallpaper.conf $(BUILD_DIR)/initrd/Library/conf/; fi
-	@mkdir -p $(BUILD_DIR)/initrd/etc/nova
-	@if [ -f library/conf/nova.conf ]; then printf "  -> nova.conf\n"; cp library/conf/nova.conf $(BUILD_DIR)/initrd/etc/nova/; fi
-
-	@printf "$(YELLOW)[COPY]$(RESET) Copying Freedoom assets...\n"
-	@if [ -f external/doomgeneric/freedoom1.wad ]; then \
-		printf "  -> freedoom1.wad -> Library/DOOM/doom1.wad\n"; \
-		cp external/doomgeneric/freedoom1.wad $(BUILD_DIR)/initrd/Library/DOOM/freedoom1.wad; \
-	fi
-
-
-	@printf "$(YELLOW)[COPY]$(RESET) ASCII art...\n"
-	@if [ -f library/art/boredos.txt ]; then printf "  -> boredos.txt\n"; cp library/art/boredos.txt $(BUILD_DIR)/initrd/Library/art/; fi
-
 	@printf "$(YELLOW)[COPY]$(RESET) Documentation...\n"
 	@for f in $$(find docs -name '*.md' 2>/dev/null); do \
 		if [ -f "$$f" ]; then \
@@ -252,8 +205,7 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF) userland packages
 	done
 
 	@printf "$(YELLOW)[COPY]$(RESET) Root files...\n"
-	@if [ -f README.md ]; then printf "  -> README.md\n"; cp README.md $(BUILD_DIR)/initrd/; fi
-	@if [ -f LICENSE ]; then printf "  -> LICENSE\n"; cp LICENSE $(BUILD_DIR)/initrd/; fi
+	@if [ -f LICENSE ]; then printf "  -> LICENSE\n"; mkdir -p $(BUILD_DIR)/initrd/docs; cp LICENSE $(BUILD_DIR)/initrd/docs/; fi
 	@if [ -f limine.conf ]; then printf "  -> limine.conf\n"; cp limine.conf $(BUILD_DIR)/initrd/; fi
 	
 	@printf "$(YELLOW)[TAR]$(RESET) Creating initrd.tar...\n"
@@ -287,7 +239,7 @@ $(ISO_IMAGE): $(KERNEL_ELF) $(BUILD_DIR)/initrd.tar.lz4 limine.conf limine-setup
 	printf "    module_path: boot():/initrd.tar.lz4\n" >> $(ISO_DIR)/limine.conf
 	
 	@printf "$(YELLOW)[COPY]$(RESET) Optional splash image...\n"
-	@if [ -f branding/splash.jpg ]; then printf "  -> splash.jpg\n"; cp branding/splash.jpg $(ISO_DIR)/splash.jpg; else printf "  -> no splash.jpg found\n"; fi
+	@if [ -f Base/boot/splash.jpg ]; then printf "  -> splash.jpg\n"; cp Base/boot/splash.jpg $(ISO_DIR)/splash.jpg; else printf "  -> no splash.jpg found\n"; fi
 	
 	@printf "$(YELLOW)[COPY]$(RESET) Limine boot files...\n"
 	cp limine/limine-bios.sys $(ISO_DIR)/
@@ -381,7 +333,6 @@ run-hd-mac: disk.qcow2 $(OVMF_VARS)
 		-drive if=pflash,format=raw,file=$(OVMF_VARS) \
 		-device ahci,id=ahci \
 		-drive file=disk.qcow2,format=qcow2,if=none,id=disk0 -device ide-hd,bus=ahci.0,drive=disk0 \
-		-drive file=disk.img,format=raw,if=none,id=disk1 -device ide-hd,bus=ahci.1,drive=disk1 \
 		-cpu max
 
 run-linux: $(ISO_IMAGE) disk.qcow2

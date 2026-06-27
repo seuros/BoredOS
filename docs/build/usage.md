@@ -22,7 +22,7 @@ External repositories are fetched and synchronized using the custom shell automa
 
 ## The Staged Build & Staging Pipeline
 
-The build process enforces a two-phase build pipeline:
+The build process enforces a multi-phase build pipeline:
 
 ```mermaid
 graph TD
@@ -30,9 +30,9 @@ graph TD
     B --> C[build/sdk: Compile libc & setup build/sdk/]
     C --> D[Compile Kernel ELF]
     C --> E[Compile Modular Apps passing BOREDOS_SDK]
-    D --> F[Assemble Initrd directory structure]
+    D --> F[Stage Initrd: Copy Base/ skeleton]
     E --> F
-    F --> G[Serenity Icon Staging]
+    F --> G[Stage binaries, config, packages]
     G --> H[Create initrd.tar.lz4]
     H --> I[Limine bios-install & xorriso bootable ISO]
 ```
@@ -43,7 +43,11 @@ graph TD
 2. **Integrated Multi-Repo Compilation**:
    - The root Makefile builds all other external application repositories in parallel, explicitly passing `BOREDOS_SDK=$(abspath build/sdk)` to their sub-Makefiles.
    - The application sub-Makefiles detect this local SDK path, link immediately against it, and skip all local fetching or SDK rebuild routines, providing massive speedups.
-3. **Single-Pass Dispatch Target**:
+3. **Initrd Assembly & Staging**:
+   - The `Base/` folder contains the root skeleton of the BoredOS file system (including standard directories like `/Library`, `/boot`, `/etc`, `/usr`, `/dev`, etc.).
+   - The build script first copies the `Base/` contents to `build/initrd/` as the starting skeleton.
+   - Compiled binaries, assets, documentation, and modular `.bup` package files are then copied and staged into their respective paths within `build/initrd/` before compression.
+4. **Single-Pass Dispatch Target**:
    - Targets like `make run` and `make run-hd` resolve platform-specific emulation rules at parse-time using GNU Make conditionals (`ifeq ($(HOST_OS),Darwin) run: run-mac ...`), completely preventing duplicate sub-make execution of `fetch_external.sh`.
 
 ---

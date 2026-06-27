@@ -137,3 +137,23 @@ Once integrated, run the verification build and launch the QEMU emulator:
 make clean && make run
 ```
 Your new repository will automatically be resolved, compiled standalone using the shared C SDK, packaged cleanly into the `/bin` directory of your bootable initrd filesystem, and available on the desktop terminal console!
+
+---
+
+## 5. BoredOS Application Data Philosophy (/Library/AppData)
+
+To maintain a clean, modular, and package-manageable filesystem, BoredOS enforces a strict directory standard:
+
+### Standardized Application Assets & Configs
+Every application **MUST** store its private assets, local resources, and configuration files inside a dedicated subdirectory under `/Library/AppData/`:
+- **Path format**: `/Library/AppData/<app_identifier>/`
+- **Application Identifier**: The subdirectory name must strictly match the package `name` field defined in the application's `MANIFEST.toml` (typically using reverse-domain notation, e.g., `org.boredos.nova`, `org.boredos.doomgeneric`).
+
+### Desktop Entries & Shortcuts
+Applications offering start menu integration must deploy their `.desktop` file to:
+- `/Library/AppData/<app_identifier>/<app_name>.desktop`
+
+### Why this is mandatory:
+1. **Packaging Consistency**: The BoredOS Package Manager (`bpm`) relies on the name in `MANIFEST.toml` to automatically install and isolate configs, assets, and desktop shortcuts to `/Library/AppData/<name>`.
+2. **Conflict Resolution**: Storing files in application-specific sandboxes prevents namespace collision. No files should be written directly to root-level `/Library`, `/etc`, or `/usr/share` by individual applications.
+3. **Clean Uninstalls**: Because files are organized inside a single directory matching the package name, `bpm` can safely clean up all application state during removal. Mismatches in directory naming between the compile-time Make targets and the `MANIFEST.toml` manifest lead to duplicate shortcut entries and missing icons in the start menu.

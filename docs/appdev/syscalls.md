@@ -165,7 +165,6 @@ Typical wrappers used by apps:
 - Filesystem: `sys_open`, `sys_read`, `sys_write_fs`, `sys_close`, `sys_seek`, `sys_tell`, `sys_size`, `sys_list`, `sys_poll`
 - Network: `sys_network_init`, `sys_network_dhcp_acquire`, `sys_udp_send`, `sys_tcp_connect`, `sys_tcp_recv_nb`, `sys_dns_lookup`
 - TTY: `sys_tty_create`, `sys_tty_read_out`, `sys_tty_write_in`, `sys_tty_set_fg`
-- ELF metadata: `sys_get_elf_metadata`, `sys_get_elf_primary_image` — see [`elf_metadata.md`](elf_metadata.md) for full usage
 
 ## Best Practices
 
