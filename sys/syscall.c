@@ -961,6 +961,24 @@ static uint64_t fs_cmd_size(const syscall_args_t *args) {
   return (uint64_t)vfs_file_size(ref->file);
 }
 
+static void fd_addref(process_t *proc, int fd) {
+  if (proc->fd_kind[fd] == PROC_FD_KIND_FILE) {
+    process_fd_file_ref_t *ref = (process_fd_file_ref_t *)proc->fds[fd];
+    if (ref)
+      ref->refs++;
+  } else if (proc->fd_kind[fd] == PROC_FD_KIND_PIPE_READ) {
+    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[fd];
+    if (pipe)
+      pipe->readers++;
+  } else if (proc->fd_kind[fd] == PROC_FD_KIND_PIPE_WRITE) {
+    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[fd];
+    if (pipe)
+      pipe->writers++;
+  } else if (proc->fd_kind[fd] == PROC_FD_KIND_SOCKET) {
+    process_socket_addref((process_fd_socket_t *)proc->fds[fd]);
+  }
+}
+
 static uint64_t fs_cmd_dup(const syscall_args_t *args) {
   process_t *proc = process_get_current();
   int oldfd = (int)args->arg2;
@@ -974,22 +992,7 @@ static uint64_t fs_cmd_dup(const syscall_args_t *args) {
   proc->fds[newfd] = proc->fds[oldfd];
   proc->fd_kind[newfd] = proc->fd_kind[oldfd];
   proc->fd_flags[newfd] = proc->fd_flags[oldfd];
-
-  if (proc->fd_kind[oldfd] == PROC_FD_KIND_FILE) {
-    process_fd_file_ref_t *ref = (process_fd_file_ref_t *)proc->fds[oldfd];
-    if (ref)
-      ref->refs++;
-  } else if (proc->fd_kind[oldfd] == PROC_FD_KIND_PIPE_READ) {
-    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[oldfd];
-    if (pipe)
-      pipe->readers++;
-  } else if (proc->fd_kind[oldfd] == PROC_FD_KIND_PIPE_WRITE) {
-    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[oldfd];
-    if (pipe)
-      pipe->writers++;
-  } else if (proc->fd_kind[oldfd] == PROC_FD_KIND_SOCKET) {
-    process_socket_addref((process_fd_socket_t *)proc->fds[oldfd]);
-  }
+  fd_addref(proc, oldfd);
 
   return (uint64_t)newfd;
 }
@@ -1015,22 +1018,7 @@ static uint64_t fs_cmd_dup2(const syscall_args_t *args) {
   proc->fds[newfd] = proc->fds[oldfd];
   proc->fd_kind[newfd] = proc->fd_kind[oldfd];
   proc->fd_flags[newfd] = proc->fd_flags[oldfd];
-
-  if (proc->fd_kind[oldfd] == PROC_FD_KIND_FILE) {
-    process_fd_file_ref_t *ref = (process_fd_file_ref_t *)proc->fds[oldfd];
-    if (ref)
-      ref->refs++;
-  } else if (proc->fd_kind[oldfd] == PROC_FD_KIND_PIPE_READ) {
-    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[oldfd];
-    if (pipe)
-      pipe->readers++;
-  } else if (proc->fd_kind[oldfd] == PROC_FD_KIND_PIPE_WRITE) {
-    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[oldfd];
-    if (pipe)
-      pipe->writers++;
-  } else if (proc->fd_kind[oldfd] == PROC_FD_KIND_SOCKET) {
-    process_socket_addref((process_fd_socket_t *)proc->fds[oldfd]);
-  }
+  fd_addref(proc, oldfd);
 
   return (uint64_t)newfd;
 }
