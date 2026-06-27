@@ -141,13 +141,7 @@ int procfs_read(void *fs_private, void *handle, void *buf, int size) {
                 
                 strcpy(out + strlen(out), "microcode\t: 0x");
                 char hex[16];
-                int temp = info.microcode;
-                int hex_pos = 0;
-                for (int j = 7; j >= 0; j--) {
-                    int digit = (temp >> (j * 4)) & 0xF;
-                    hex[hex_pos++] = digit < 10 ? '0' + digit : 'a' + (digit - 10);
-                }
-                hex[hex_pos] = '\0';
+                itoa_hex32(info.microcode, hex);
                 strcpy(out + strlen(out), hex);
                 strcpy(out + strlen(out), "\n");
                 
