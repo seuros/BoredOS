@@ -4,6 +4,7 @@
 #include "rtl8139.h"
 #include "io.h"
 #include "kutils.h"
+#include "kconsole.h"
 #include "platform.h"
 
 #define RTL8139_MAC_0         0x00
@@ -86,14 +87,7 @@ int rtl8139_init(pci_device_t* pci_dev) {
     mac_addr[4] = (mac_high >> 0) & 0xFF;
     mac_addr[5] = (mac_high >> 8) & 0xFF;
 
-    serial_write("[RTL8139] MAC: ");
-    for(int i=0; i<6; i++) {
-        char buf[4];
-        itoa_hex(mac_addr[i], buf);
-        serial_write(buf);
-        if(i<5) serial_write(":");
-    }
-    serial_write("\n");
+    serial_write_mac("[RTL8139] MAC: ", mac_addr);
 
     // Init RX buffer
     uint32_t rx_phys = v2p((uint64_t)(uintptr_t)rx_buffer);

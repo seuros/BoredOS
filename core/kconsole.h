@@ -15,6 +15,7 @@ void serial_write_num_locked(uint32_t n);
 void serial_write_num(uint32_t n);
 void serial_write_hex_locked(uint64_t n);
 void serial_write_hex(uint64_t n);
+void serial_write_mac(const char *label, const uint8_t *mac);
 
 void log_ok(const char *msg);
 void log_fail(const char *msg);
