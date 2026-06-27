@@ -151,19 +151,23 @@ static int ata_identify(uint16_t port_base, bool slave) {
     return sectors;
 }
 
-static int ata_read_sector(Disk *disk, uint32_t lba, uint8_t *buffer) {
+static void ata_resolve_partition(Disk *disk, uint32_t *lba,
+                                  uint16_t *port_base, bool *slave) {
     ATADriverData *data = (ATADriverData*)disk->driver_data;
-    uint16_t port_base = data->port_base;
-    bool slave = data->slave;
-
-    // For partition reads, add the partition LBA offset
+    *port_base = data->port_base;
+    *slave = data->slave;
     if (disk->is_partition && disk->parent) {
-        lba += disk->partition_lba_offset;
-        // Use parent's driver
+        *lba += disk->partition_lba_offset;
         data = (ATADriverData*)disk->parent->driver_data;
-        port_base = data->port_base;
-        slave = data->slave;
+        *port_base = data->port_base;
+        *slave = data->slave;
     }
+}
+
+static int ata_read_sector(Disk *disk, uint32_t lba, uint8_t *buffer) {
+    uint16_t port_base;
+    bool slave;
+    ata_resolve_partition(disk, &lba, &port_base, &slave);
 
     uint64_t flags = spinlock_acquire_irqsave(&ide_lock);
 
@@ -199,17 +203,9 @@ static int ata_read_sector(Disk *disk, uint32_t lba, uint8_t *buffer) {
 }
 
 static int ata_write_sector(Disk *disk, uint32_t lba, const uint8_t *buffer) {
-    ATADriverData *data = (ATADriverData*)disk->driver_data;
-    uint16_t port_base = data->port_base;
-    bool slave = data->slave;
-
-    // For partition writes, add the partition LBA offset
-    if (disk->is_partition && disk->parent) {
-        lba += disk->partition_lba_offset;
-        data = (ATADriverData*)disk->parent->driver_data;
-        port_base = data->port_base;
-        slave = data->slave;
-    }
+    uint16_t port_base;
+    bool slave;
+    ata_resolve_partition(disk, &lba, &port_base, &slave);
 
     uint64_t flags = spinlock_acquire_irqsave(&ide_lock);
 
@@ -251,15 +247,9 @@ static int ata_write_sector(Disk *disk, uint32_t lba, const uint8_t *buffer) {
 }
 
 static int ata_read_sectors(Disk *disk, uint32_t lba, uint32_t count, uint8_t *buffer) {
-    ATADriverData *data = (ATADriverData*)disk->driver_data;
-    uint16_t port_base = data->port_base;
-    bool slave = data->slave;
-    if (disk->is_partition && disk->parent) {
-        lba += disk->partition_lba_offset;
-        data = (ATADriverData*)disk->parent->driver_data;
-        port_base = data->port_base;
-        slave = data->slave;
-    }
+    uint16_t port_base;
+    bool slave;
+    ata_resolve_partition(disk, &lba, &port_base, &slave);
 
     uint64_t flags = spinlock_acquire_irqsave(&ide_lock);
 
@@ -297,15 +287,9 @@ static int ata_read_sectors(Disk *disk, uint32_t lba, uint32_t count, uint8_t *b
 }
 
 static int ata_write_sectors(Disk *disk, uint32_t lba, uint32_t count, const uint8_t *buffer) {
-    ATADriverData *data = (ATADriverData*)disk->driver_data;
-    uint16_t port_base = data->port_base;
-    bool slave = data->slave;
-    if (disk->is_partition && disk->parent) {
-        lba += disk->partition_lba_offset;
-        data = (ATADriverData*)disk->parent->driver_data;
-        port_base = data->port_base;
-        slave = data->slave;
-    }
+    uint16_t port_base;
+    bool slave;
+    ata_resolve_partition(disk, &lba, &port_base, &slave);
 
     uint64_t flags = spinlock_acquire_irqsave(&ide_lock);
 
