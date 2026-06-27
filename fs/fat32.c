@@ -144,6 +144,17 @@ static void fat32_resolve_entry_name(const FAT32_DirEntry *entry,
     }
 }
 
+static bool fat32_name_match(const char *a, const char *b) {
+    int i = 0;
+    for (; a[i] && b[i]; i++) {
+        char c1 = a[i], c2 = b[i];
+        if (c1 >= 'a' && c1 <= 'z') c1 -= 32;
+        if (c2 >= 'a' && c2 <= 'z') c2 -= 32;
+        if (c1 != c2) return false;
+    }
+    return a[i] == b[i];
+}
+
 bool fs_starts_with(const char *str, const char *prefix) {
     while (*prefix) {
         if (*prefix++ != *str++) return false;
@@ -837,22 +848,7 @@ static FAT32_FileHandle* realfs_open_from_vol(FAT32_Volume *vol, const char *pat
                 fat32_resolve_entry_name(&entry[e], lfn_buffer, has_lfn, name);
                 has_lfn = false;
 
-                // Case insensitive compare
-                bool match = true;
-                int clen = fs_strlen(component);
-                int nlen = fs_strlen(name);
-                if (clen != nlen) match = false;
-                else {
-                    for (int c = 0; c < clen; c++) {
-                        char c1 = name[c];
-                        char c2 = component[c];
-                        if (c1 >= 'a' && c1 <= 'z') c1 -= 32;
-                        if (c2 >= 'a' && c2 <= 'z') c2 -= 32;
-                        if (c1 != c2) { match = false; break; }
-                    }
-                }
-                
-                if (match) {
+                if (fat32_name_match(name, component)) {
                     uint32_t cluster = (entry[e].start_cluster_high << 16) | entry[e].start_cluster_low;
                     
                     uint32_t lba = vol->cluster_begin_lba + (search_cluster - 2) * vol->sectors_per_cluster;
@@ -1289,20 +1285,7 @@ static bool realfs_delete_from_vol(FAT32_Volume *vol, const char *path) {
                 fat32_resolve_entry_name(&entry[e], lfn_buffer, has_lfn, name);
                 has_lfn = false;
 
-                // Case insensitive compare
-                bool match = true;
-                int clen = fs_strlen(component);
-                int nlen = fs_strlen(name);
-                if (clen != nlen) match = false;
-                else {
-                    for (int c = 0; c < clen; c++) {
-                        char c1 = name[c];
-                        char c2 = component[c];
-                        if (c1 >= 'a' && c1 <= 'z') c1 -= 32;
-                        if (c2 >= 'a' && c2 <= 'z') c2 -= 32;
-                        if (c1 != c2) { match = false; break; }
-                    }
-                }
+                bool match = fat32_name_match(name, component);
 
                 int lfn_start_entry = -1;
                 if (has_lfn) {
