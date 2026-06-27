@@ -71,9 +71,10 @@ static int read_net_address(char *buf, int size, int offset) {
   return -1;
 }
 
-static int read_net_ip(char *buf, int size, int offset) {
+static int read_ip_field(char *buf, int size, int offset,
+                         int (*getter)(ipv4_address_t *)) {
   ipv4_address_t ip;
-  if (network_get_ipv4_address(&ip) == 0) {
+  if (getter(&ip) == 0) {
     char out[64];
     format_ip(&ip, out);
     int len = strlen(out);
@@ -84,36 +85,18 @@ static int read_net_ip(char *buf, int size, int offset) {
     return to_copy;
   }
   return -1;
+}
+
+static int read_net_ip(char *buf, int size, int offset) {
+  return read_ip_field(buf, size, offset, network_get_ipv4_address);
 }
 
 static int read_net_gateway(char *buf, int size, int offset) {
-  ipv4_address_t ip;
-  if (network_get_gateway_ip(&ip) == 0) {
-    char out[64];
-    format_ip(&ip, out);
-    int len = strlen(out);
-    if (offset >= len) return 0;
-    int to_copy = len - offset;
-    if (to_copy > size) to_copy = size;
-    memcpy(buf, out + offset, to_copy);
-    return to_copy;
-  }
-  return -1;
+  return read_ip_field(buf, size, offset, network_get_gateway_ip);
 }
 
 static int read_net_dns(char *buf, int size, int offset) {
-  ipv4_address_t ip;
-  if (network_get_dns_ip(&ip) == 0) {
-    char out[64];
-    format_ip(&ip, out);
-    int len = strlen(out);
-    if (offset >= len) return 0;
-    int to_copy = len - offset;
-    if (to_copy > size) to_copy = size;
-    memcpy(buf, out + offset, to_copy);
-    return to_copy;
-  }
-  return -1;
+  return read_ip_field(buf, size, offset, network_get_dns_ip);
 }
 
 static int read_net_nic(char *buf, int size, int offset) {
