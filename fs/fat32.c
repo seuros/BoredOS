@@ -132,6 +132,24 @@ static void fs_strcat(char *dest, const char *src) {
 }
 
 
+static void fat32_resolve_entry_name(const FAT32_DirEntry *entry,
+                                     const char *lfn_buffer, bool has_lfn,
+                                     char *name) {
+    if (has_lfn && lfn_buffer[0] != 0) {
+        fs_strcpy(name, lfn_buffer);
+    } else {
+        int n = 0;
+        for (int k = 0; k < 8 && entry->filename[k] != ' '; k++)
+            name[n++] = entry->filename[k];
+        if (entry->extension[0] != ' ') {
+            name[n++] = '.';
+            for (int k = 0; k < 3 && entry->extension[k] != ' '; k++)
+                name[n++] = entry->extension[k];
+        }
+        name[n] = 0;
+    }
+}
+
 bool fs_starts_with(const char *str, const char *prefix) {
     while (*prefix) {
         if (*prefix++ != *str++) return false;
@@ -822,19 +840,9 @@ static FAT32_FileHandle* realfs_open_from_vol(FAT32_Volume *vol, const char *pat
                 
                 // Compare name
                 char name[256];
-                if (has_lfn && lfn_buffer[0] != 0) {
-                    fs_strcpy(name, lfn_buffer);
-                    has_lfn = false;
-                } else {
-                    int n = 0;
-                    for (int k = 0; k < 8 && entry[e].filename[k] != ' '; k++) name[n++] = entry[e].filename[k];
-                    if (entry[e].extension[0] != ' ') {
-                        name[n++] = '.';
-                        for (int k = 0; k < 3 && entry[e].extension[k] != ' '; k++) name[n++] = entry[e].extension[k];
-                    }
-                    name[n] = 0;
-                }
-                
+                fat32_resolve_entry_name(&entry[e], lfn_buffer, has_lfn, name);
+                has_lfn = false;
+
                 // Case insensitive compare
                 bool match = true;
                 int clen = fs_strlen(component);
@@ -1284,19 +1292,9 @@ static bool realfs_delete_from_vol(FAT32_Volume *vol, const char *path) {
                 }
                 
                 char name[256];
-                if (has_lfn && lfn_buffer[0] != 0) {
-                    fs_strcpy(name, lfn_buffer);
-                    has_lfn = false;
-                } else {
-                    int n = 0;
-                    for (int k = 0; k < 8 && entry[e].filename[k] != ' '; k++) name[n++] = entry[e].filename[k];
-                    if (entry[e].extension[0] != ' ') {
-                        name[n++] = '.';
-                        for (int k = 0; k < 3 && entry[e].extension[k] != ' '; k++) name[n++] = entry[e].extension[k];
-                    }
-                    name[n] = 0;
-                }
-                
+                fat32_resolve_entry_name(&entry[e], lfn_buffer, has_lfn, name);
+                has_lfn = false;
+
                 // Case insensitive compare
                 bool match = true;
                 int clen = fs_strlen(component);
