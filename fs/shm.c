@@ -16,15 +16,7 @@ shm_segment_t* shm_get_or_create(const char *name) {
     uint64_t flags = spinlock_acquire_irqsave(&shm_lock);
     shm_segment_t *cur = shm_list;
     while (cur) {
-        // Safe string comparison
-        int match = 1;
-        for (int i = 0; name[i] || cur->name[i]; i++) {
-            if (name[i] != cur->name[i]) {
-                match = 0;
-                break;
-            }
-        }
-        if (match) {
+        if (strcmp(name, cur->name) == 0) {
             cur->ref_count++;
             spinlock_release_irqrestore(&shm_lock, flags);
             return cur;
@@ -137,14 +129,7 @@ void shm_unlink(const char *name) {
     uint64_t flags = spinlock_acquire_irqsave(&shm_lock);
     shm_segment_t *cur = shm_list;
     while (cur) {
-        int match = 1;
-        for (int i = 0; name[i] || cur->name[i]; i++) {
-            if (name[i] != cur->name[i]) {
-                match = 0;
-                break;
-            }
-        }
-        if (match) {
+        if (strcmp(name, cur->name) == 0) {
             // Remove from global list
             shm_segment_t *prev = NULL;
             shm_segment_t *temp = shm_list;
@@ -182,14 +167,7 @@ bool shm_exists(const char *name) {
     uint64_t flags = spinlock_acquire_irqsave(&shm_lock);
     shm_segment_t *cur = shm_list;
     while (cur) {
-        int match = 1;
-        for (int i = 0; name[i] || cur->name[i]; i++) {
-            if (name[i] != cur->name[i]) {
-                match = 0;
-                break;
-            }
-        }
-        if (match) {
+        if (strcmp(name, cur->name) == 0) {
             spinlock_release_irqrestore(&shm_lock, flags);
             return true;
         }
