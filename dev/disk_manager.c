@@ -523,6 +523,16 @@ static bool is_fat32_bpb(const uint8_t *sector) {
     return false;
 }
 
+static bool disk_probe_fat32(Disk *disk, uint32_t lba) {
+    uint8_t *pbuf = (uint8_t*)kmalloc(512);
+    if (!pbuf) return false;
+    bool fat32 = false;
+    if (disk->read_sector(disk, lba, pbuf) == 0)
+        fat32 = is_fat32_bpb(pbuf);
+    kfree(pbuf);
+    return fat32;
+}
+
 // Parse MBR and register each partition as a child block device
 static void parse_mbr_partitions(Disk *disk) {
     uint8_t *buffer = (uint8_t*)kmalloc(512);
@@ -560,14 +570,7 @@ static void parse_mbr_partitions(Disk *disk) {
         
         bool fat32 = false;
         if (type == PART_TYPE_FAT32 || type == PART_TYPE_FAT32_LBA) {
-            // Verify by reading the BPB
-            uint8_t *pbuf = (uint8_t*)kmalloc(512);
-            if (pbuf) {
-                if (disk->read_sector(disk, start, pbuf) == 0) {
-                    fat32 = is_fat32_bpb(pbuf);
-                }
-                kfree(pbuf);
-            }
+            fat32 = disk_probe_fat32(disk, start);
         }
 
         disk_register_partition(disk, partitions[i].lba_start,
@@ -1001,17 +1004,7 @@ static void parse_gpt_partitions(Disk *disk) {
         bool is_esp = true;
         for (int j = 0; j < 16; j++) if (entry->type_guid[j] != esp_guid[j]) { is_esp = false; break; }
 
-        bool fat32 = false;
-        if (is_esp) fat32 = true;
-        else {
-            uint8_t *pbuf = (uint8_t*)kmalloc(512);
-            if (pbuf) {
-                if (disk->read_sector(disk, start, pbuf) == 0) {
-                    fat32 = is_fat32_bpb(pbuf);
-                }
-                kfree(pbuf);
-            }
-        }
+        bool fat32 = is_esp || disk_probe_fat32(disk, start);
 
         disk_register_partition(disk, start, size, fat32, is_esp, part_num++);
         part_count++;
