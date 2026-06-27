@@ -686,6 +686,23 @@ int ac97_dsp_ioctl(void *handle, uint64_t request, void *arg) {
     return -1;
 }
 
+static int ac97_reg_to_vol(uint16_t val) {
+    if (val & 0x8000) return 0;
+    int step_L = (val >> 8) & 0x1F;
+    int step_R =  val       & 0x1F;
+    int vol_L  = (31 - step_L) * 100 / 31;
+    int vol_R  = (31 - step_R) * 100 / 31;
+    return vol_L | (vol_R << 8);
+}
+
+static uint16_t ac97_vol_to_reg(int vol_L, int vol_R) {
+    if (vol_L == 0 && vol_R == 0)
+        return 0x8000 | (31 << 8) | 31;
+    int step_L = 31 - (vol_L * 31 / 100);
+    int step_R = 31 - (vol_R * 31 / 100);
+    return ((step_L & 0x1F) << 8) | (step_R & 0x1F);
+}
+
 int ac97_mixer_ioctl(uint64_t request, void *arg) {
     if (!ac97_found) return -1;
 
@@ -700,17 +717,7 @@ int ac97_mixer_ioctl(uint64_t request, void *arg) {
             uint16_t val = inw(nam_base + 0x02); // NAM+0x02: Master Volume
             spinlock_release_irqrestore(&ac97_lock, flags);
 
-            int vol;
-            if (val & 0x8000) {
-                vol = 0; // Muted
-            } else {
-                int step_L = (val >> 8) & 0x1F;
-                int step_R =  val       & 0x1F;
-                int vol_L  = (31 - step_L) * 100 / 31;
-                int vol_R  = (31 - step_R) * 100 / 31;
-                vol = vol_L | (vol_R << 8);
-            }
-            *(int*)arg = vol;
+            *(int*)arg = ac97_reg_to_vol(val);
             return 0;
         }
         case SOUND_MIXER_WRITE_VOLUME: {
@@ -723,16 +730,7 @@ int ac97_mixer_ioctl(uint64_t request, void *arg) {
             uint64_t flags = spinlock_acquire_irqsave(&ac97_lock);
             sw_vol_l = vol_L;
             sw_vol_r = vol_R;
-
-            uint16_t val;
-            if (vol_L == 0 && vol_R == 0) {
-                val = 0x8000 | (31 << 8) | 31; // Mute with full attenuation
-            } else {
-                int step_L = 31 - (vol_L * 31 / 100);
-                int step_R = 31 - (vol_R * 31 / 100);
-                val = ((step_L & 0x1F) << 8) | (step_R & 0x1F);
-            }
-            outw(nam_base + 0x02, val);
+            outw(nam_base + 0x02, ac97_vol_to_reg(vol_L, vol_R));
             spinlock_release_irqrestore(&ac97_lock, flags);
             return 0;
         }
@@ -742,17 +740,7 @@ int ac97_mixer_ioctl(uint64_t request, void *arg) {
             uint16_t val = inw(nam_base + 0x18); // NAM+0x18: PCM Out Volume
             spinlock_release_irqrestore(&ac97_lock, flags);
 
-            int vol;
-            if (val & 0x8000) {
-                vol = 0;
-            } else {
-                int step_L = (val >> 8) & 0x1F;
-                int step_R =  val       & 0x1F;
-                int vol_L  = (31 - step_L) * 100 / 31;
-                int vol_R  = (31 - step_R) * 100 / 31;
-                vol = vol_L | (vol_R << 8);
-            }
-            *(int*)arg = vol;
+            *(int*)arg = ac97_reg_to_vol(val);
             return 0;
         }
         case SOUND_MIXER_WRITE_PCM: {
@@ -765,16 +753,7 @@ int ac97_mixer_ioctl(uint64_t request, void *arg) {
             uint64_t flags = spinlock_acquire_irqsave(&ac97_lock);
             sw_pcm_l = vol_L;
             sw_pcm_r = vol_R;
-
-            uint16_t val;
-            if (vol_L == 0 && vol_R == 0) {
-                val = 0x8000 | (31 << 8) | 31;
-            } else {
-                int step_L = 31 - (vol_L * 31 / 100);
-                int step_R = 31 - (vol_R * 31 / 100);
-                val = ((step_L & 0x1F) << 8) | (step_R & 0x1F);
-            }
-            outw(nam_base + 0x18, val);
+            outw(nam_base + 0x18, ac97_vol_to_reg(vol_L, vol_R));
             spinlock_release_irqrestore(&ac97_lock, flags);
             return 0;
         }
