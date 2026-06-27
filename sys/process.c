@@ -20,17 +20,6 @@
 
 #define MSR_FS_BASE 0xC0000100
 
-static inline uint64_t rdmsr(uint32_t msr) {
-    uint32_t low, high;
-    asm volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(msr));
-    return ((uint64_t)high << 32) | low;
-}
-
-static inline void wrmsr(uint32_t msr, uint64_t value) {
-    uint32_t low = value & 0xFFFFFFFF;
-    uint32_t high = value >> 32;
-    asm volatile("wrmsr" : : "c"(msr), "a"(low), "d"(high));
-}
 
 extern void cmd_write(const char *str);
 extern void serial_write(const char *str);
@@ -91,7 +80,7 @@ static void process_release_slot(process_t *p) {
     process_init_signal_state(p);
 }
 
-static void process_close_fd_inner(process_t *proc, int fd) {
+void process_close_fd_inner(process_t *proc, int fd) {
     if (!proc || fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd]) {
         return;
     }

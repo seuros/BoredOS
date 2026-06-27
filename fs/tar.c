@@ -38,28 +38,6 @@ static uint64_t tar_parse_octal(const char *str, int size) {
     return result;
 }
 
-// Helper: Make directories sequentially for nested paths
-static void tar_mkdir_recursive(const char *path) {
-    char temp[256];
-    int i = 0;
-    if (path[0] == '/') {
-        temp[0] = '/';
-        i = 1;
-    }
-    while (path[i] && i < 255) {
-        temp[i] = path[i];
-        if (path[i] == '/') {
-            temp[i] = '\0';
-            fat32_mkdir(temp);
-            temp[i] = '/';
-        }
-        i++;
-    }
-    if (i > 0 && temp[i - 1] != '/') {
-        temp[i] = '\0';
-        fat32_mkdir(temp);
-    }
-}
 
 void tar_parse(void *archive, uint64_t archive_size) {
     uint8_t *ptr = (uint8_t *)archive;
@@ -96,7 +74,7 @@ void tar_parse(void *archive, uint64_t archive_size) {
 
         if (header->typeflag == '5') {
             // It's a directory
-            tar_mkdir_recursive(full_path);
+            fat32_mkdir_recursive(full_path);
         } else if (header->typeflag == '0' || header->typeflag == '\0') {
             // It's a normal file
             // First ensure the parent directory exists
@@ -110,7 +88,7 @@ void tar_parse(void *archive, uint64_t archive_size) {
             }
             if (last_slash > 0) {
                 parent_path[last_slash] = '\0';
-                tar_mkdir_recursive(parent_path);
+                fat32_mkdir_recursive(parent_path);
             }
 
             if (full_path[0] == '/' && full_path[1] == 'b' && full_path[2] == 'o' &&

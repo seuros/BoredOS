@@ -213,30 +213,6 @@ static void print_verbose_boot_banner(void) {
 
 // Kernel Entry Point
 
-static void fat32_mkdir_recursive(const char *path) {
-    char temp[256];
-    int i = 0;
-    
-    // Skip initial slash
-    if (path[0] == '/') {
-        temp[0] = '/';
-        i = 1;
-    }
-    
-    while (path[i] && i < 255) {
-        temp[i] = path[i];
-        if (path[i] == '/') {
-            temp[i] = '\0';
-            fat32_mkdir(temp);
-            temp[i] = '/';
-        }
-        i++;
-    }
-    if (i > 0 && temp[i-1] != '/') {
-        temp[i] = '\0';
-        fat32_mkdir(temp);
-    }
-}
 
 static bool cmdline_has_flag(const char *cmdline, const char *flag) {
     if (!cmdline || !flag || !flag[0]) return false;

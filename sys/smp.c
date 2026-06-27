@@ -11,6 +11,7 @@
 #include "process.h"
 #include "work_queue.h"
 #include "kutils.h"
+#include "io.h"
 
 extern void serial_write(const char *str);
 extern void serial_write_num(uint32_t n);
@@ -24,11 +25,6 @@ static cpu_state_t *bsp_cpu_state = NULL;
 #define MSR_GS_BASE         0xC0000101
 #define MSR_KERNEL_GS_BASE  0xC0000102
 
-static inline void wrmsr(uint32_t msr, uint64_t value) {
-    uint32_t low = (uint32_t)value;
-    uint32_t high = (uint32_t)(value >> 32);
-    asm volatile("wrmsr" : : "c"(msr), "a"(low), "d"(high));
-}
 
 static uint32_t read_lapic_id(void) {
     extern uint64_t hhdm_offset;

@@ -52,19 +52,6 @@
 #define SYSTEM_CMD_SET_FS_BASE 79
 #define MSR_FS_BASE 0xC0000100
 
-// Read MSR
-static inline uint64_t rdmsr(uint32_t msr) {
-  uint32_t low, high;
-  asm volatile("rdmsr" : "=a"(low), "=d"(high) : "c"(msr));
-  return ((uint64_t)high << 32) | low;
-}
-
-// Write MSR
-static inline void wrmsr(uint32_t msr, uint64_t value) {
-  uint32_t low = value & 0xFFFFFFFF;
-  uint32_t high = value >> 32;
-  asm volatile("wrmsr" : : "c"(msr), "a"(low), "d"(high));
-}
 
 extern void isr128_wrapper(void);
 extern void *kmalloc(size_t size);
@@ -891,35 +878,7 @@ static uint64_t fs_cmd_close(const syscall_args_t *args) {
   if (fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd])
     return -1;
 
-  if (proc->fd_kind[fd] == PROC_FD_KIND_FILE) {
-    process_fd_file_ref_t *ref = (process_fd_file_ref_t *)proc->fds[fd];
-    if (ref) {
-      ref->refs--;
-      if (ref->refs <= 0) {
-        if (ref->file)
-          vfs_close(ref->file);
-        kfree(ref);
-      }
-    }
-  } else if (proc->fd_kind[fd] == PROC_FD_KIND_PIPE_READ ||
-             proc->fd_kind[fd] == PROC_FD_KIND_PIPE_WRITE) {
-    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[fd];
-    if (pipe) {
-      if (proc->fd_kind[fd] == PROC_FD_KIND_PIPE_READ)
-        pipe->readers--;
-      else
-        pipe->writers--;
-      if (pipe->readers <= 0 && pipe->writers <= 0) {
-        kfree(pipe);
-      }
-    }
-  } else if (proc->fd_kind[fd] == PROC_FD_KIND_SOCKET) {
-    process_socket_release((process_fd_socket_t *)proc->fds[fd]);
-  }
-
-  proc->fds[fd] = NULL;
-  proc->fd_kind[fd] = PROC_FD_KIND_NONE;
-  proc->fd_flags[fd] = 0;
+  process_close_fd_inner(proc, fd);
   return 0;
 }
 
@@ -974,6 +933,24 @@ static uint64_t fs_cmd_size(const syscall_args_t *args) {
   return (uint64_t)vfs_file_size(ref->file);
 }
 
+static void fd_addref(process_t *proc, int fd) {
+  if (proc->fd_kind[fd] == PROC_FD_KIND_FILE) {
+    process_fd_file_ref_t *ref = (process_fd_file_ref_t *)proc->fds[fd];
+    if (ref)
+      ref->refs++;
+  } else if (proc->fd_kind[fd] == PROC_FD_KIND_PIPE_READ) {
+    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[fd];
+    if (pipe)
+      pipe->readers++;
+  } else if (proc->fd_kind[fd] == PROC_FD_KIND_PIPE_WRITE) {
+    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[fd];
+    if (pipe)
+      pipe->writers++;
+  } else if (proc->fd_kind[fd] == PROC_FD_KIND_SOCKET) {
+    process_socket_addref((process_fd_socket_t *)proc->fds[fd]);
+  }
+}
+
 static uint64_t fs_cmd_dup(const syscall_args_t *args) {
   process_t *proc = process_get_current();
   int oldfd = (int)args->arg2;
@@ -987,22 +964,7 @@ static uint64_t fs_cmd_dup(const syscall_args_t *args) {
   proc->fds[newfd] = proc->fds[oldfd];
   proc->fd_kind[newfd] = proc->fd_kind[oldfd];
   proc->fd_flags[newfd] = proc->fd_flags[oldfd];
-
-  if (proc->fd_kind[oldfd] == PROC_FD_KIND_FILE) {
-    process_fd_file_ref_t *ref = (process_fd_file_ref_t *)proc->fds[oldfd];
-    if (ref)
-      ref->refs++;
-  } else if (proc->fd_kind[oldfd] == PROC_FD_KIND_PIPE_READ) {
-    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[oldfd];
-    if (pipe)
-      pipe->readers++;
-  } else if (proc->fd_kind[oldfd] == PROC_FD_KIND_PIPE_WRITE) {
-    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[oldfd];
-    if (pipe)
-      pipe->writers++;
-  } else if (proc->fd_kind[oldfd] == PROC_FD_KIND_SOCKET) {
-    process_socket_addref((process_fd_socket_t *)proc->fds[oldfd]);
-  }
+  fd_addref(proc, oldfd);
 
   return (uint64_t)newfd;
 }
@@ -1028,22 +990,7 @@ static uint64_t fs_cmd_dup2(const syscall_args_t *args) {
   proc->fds[newfd] = proc->fds[oldfd];
   proc->fd_kind[newfd] = proc->fd_kind[oldfd];
   proc->fd_flags[newfd] = proc->fd_flags[oldfd];
-
-  if (proc->fd_kind[oldfd] == PROC_FD_KIND_FILE) {
-    process_fd_file_ref_t *ref = (process_fd_file_ref_t *)proc->fds[oldfd];
-    if (ref)
-      ref->refs++;
-  } else if (proc->fd_kind[oldfd] == PROC_FD_KIND_PIPE_READ) {
-    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[oldfd];
-    if (pipe)
-      pipe->readers++;
-  } else if (proc->fd_kind[oldfd] == PROC_FD_KIND_PIPE_WRITE) {
-    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[oldfd];
-    if (pipe)
-      pipe->writers++;
-  } else if (proc->fd_kind[oldfd] == PROC_FD_KIND_SOCKET) {
-    process_socket_addref((process_fd_socket_t *)proc->fds[oldfd]);
-  }
+  fd_addref(proc, oldfd);
 
   return (uint64_t)newfd;
 }
@@ -2080,13 +2027,6 @@ static void disk_k_strcpy(char *dst, const char *src, int max) {
   dst[i] = 0;
 }
 
-static int disk_k_strcmp(const char *a, const char *b) {
-  while (*a && *a == *b) {
-    a++;
-    b++;
-  }
-  return (unsigned char)*a - (unsigned char)*b;
-}
 
 static uint64_t sys_cmd_disk_get_count(const syscall_args_t *args) {
   (void)args;
@@ -2192,7 +2132,7 @@ static uint64_t sys_cmd_disk_sync(const syscall_args_t *args) {
   int mc = vfs_get_mount_count();
   for (int i = 0; i < mc; i++) {
     vfs_mount_t *m = vfs_get_mount(i);
-    if (m && m->active && disk_k_strcmp(m->path, mountpoint) == 0) {
+    if (m && m->active && strcmp(m->path, mountpoint) == 0) {
       Disk *d = disk_get_by_name(m->device);
       if (d)
         return (uint64_t)disk_sync(d);
@@ -2219,7 +2159,7 @@ static uint64_t sys_cmd_disk_replace_kernel(const syscall_args_t *args) {
     dest_path[mi++] = suffix[i];
   dest_path[mi] = 0;
 
-  if (disk_k_strcmp(src_path, dest_path) == 0) {
+  if (strcmp(src_path, dest_path) == 0) {
     serial_write("[KUP] Error: source and destination are the same file\n");
     return (uint64_t)-1;
   }

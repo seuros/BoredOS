@@ -166,6 +166,7 @@ void process_init(void);
 process_t* process_create(void (*entry_point)(void), bool is_user);
 process_t* process_create_elf(const char* filepath, const char* args_str, bool terminal_proc, int tty_id);
 int process_exec_replace_current(registers_t *regs, const char* filepath, const char* args_str);
+void process_close_fd_inner(process_t *proc, int fd);
 process_t* process_get_current(void);
 uint32_t   process_get_current_pid(void);
 void process_set_current_for_cpu(uint32_t cpu_id, process_t* p);

@@ -214,6 +214,36 @@ static int ahci_identify(int port_num, uint32_t *sectors, char *model) {
 
 
 
+static int ahci_fill_prdt(HBA_CMD_TBL *cmd_tbl, const void *buffer,
+                          uint32_t byte_count) {
+    uint64_t pml4 = paging_get_pml4_phys();
+    uint64_t buf_addr = (uint64_t)buffer;
+    uint32_t remaining = byte_count;
+    int prd_idx = 0;
+
+    while (remaining > 0 && prd_idx < 32) {
+        uint64_t phys = paging_virt2phys(pml4, buf_addr);
+        if (!phys)
+            return -1;
+
+        uint32_t offset = buf_addr & 0xFFF;
+        uint32_t can_do = 4096 - offset;
+        if (can_do > remaining) can_do = remaining;
+
+        cmd_tbl->prdt[prd_idx].dba = (uint32_t)(phys & 0xFFFFFFFF);
+        cmd_tbl->prdt[prd_idx].dbau = (uint32_t)(phys >> 32);
+        cmd_tbl->prdt[prd_idx].dbc = can_do - 1;
+        cmd_tbl->prdt[prd_idx].i = 0;
+
+        buf_addr += can_do;
+        remaining -= can_do;
+        prd_idx++;
+    }
+
+    if (prd_idx > 0) cmd_tbl->prdt[prd_idx - 1].i = 1;
+    return prd_idx;
+}
+
 int ahci_read_sectors(int port_num, uint64_t lba, uint32_t count, uint8_t *buffer) {
     if (!ahci_initialized || port_num < 0 || port_num >= MAX_AHCI_PORTS) return -1;
     ahci_port_state_t *ps = &ports[port_num];
@@ -236,35 +266,11 @@ int ahci_read_sectors(int port_num, uint64_t lba, uint32_t count, uint8_t *buffe
     HBA_CMD_TBL *cmd_tbl = ps->cmd_tbl;
     memset(cmd_tbl, 0, sizeof(HBA_CMD_TBL) + 32 * sizeof(HBA_PRDT_ENTRY));
 
-    extern uint64_t paging_get_pml4_phys(void);
-    extern uint64_t paging_virt2phys(uint64_t pml4_phys, uint64_t virtual_addr);
-    uint64_t pml4 = paging_get_pml4_phys();
-    uint64_t buf_addr = (uint64_t)buffer;
-    uint32_t remaining = count * 512;
-    int prd_idx = 0;
-
-    while (remaining > 0 && prd_idx < 32) {
-        uint64_t phys = paging_virt2phys(pml4, buf_addr);
-        if (!phys) {
-            spinlock_release_irqrestore(&ps->lock, rflags);
-            return -1;
-        }
-
-        uint32_t offset = buf_addr & 0xFFF;
-        uint32_t can_do = 4096 - offset;
-        if (can_do > remaining) can_do = remaining;
-
-        cmd_tbl->prdt[prd_idx].dba = (uint32_t)(phys & 0xFFFFFFFF);
-        cmd_tbl->prdt[prd_idx].dbau = (uint32_t)(phys >> 32);
-        cmd_tbl->prdt[prd_idx].dbc = can_do - 1; // 0-based
-        cmd_tbl->prdt[prd_idx].i = 0;
-
-        buf_addr += can_do;
-        remaining -= can_do;
-        prd_idx++;
+    int prd_idx = ahci_fill_prdt(cmd_tbl, buffer, count * 512);
+    if (prd_idx < 0) {
+        spinlock_release_irqrestore(&ps->lock, rflags);
+        return -1;
     }
-    
-    if (prd_idx > 0) cmd_tbl->prdt[prd_idx - 1].i = 1; // Interrupt on last
     cmd_hdr->prdtl = prd_idx;
 
     // Setup Command FIS
@@ -331,36 +337,11 @@ int ahci_write_sectors(int port_num, uint64_t lba, uint32_t count, const uint8_t
     HBA_CMD_TBL *cmd_tbl = ps->cmd_tbl;
     memset(cmd_tbl, 0, sizeof(HBA_CMD_TBL) + 32 * sizeof(HBA_PRDT_ENTRY));
 
-    // Setup PRDT - handle buffers spanning multiple physical pages
-    extern uint64_t paging_get_pml4_phys(void);
-    extern uint64_t paging_virt2phys(uint64_t pml4_phys, uint64_t virtual_addr);
-    uint64_t pml4 = paging_get_pml4_phys();
-    uint64_t buf_addr = (uint64_t)buffer;
-    uint32_t remaining = count * 512;
-    int prd_idx = 0;
-
-    while (remaining > 0 && prd_idx < 32) {
-        uint64_t phys = paging_virt2phys(pml4, buf_addr);
-        if (!phys) {
-            spinlock_release_irqrestore(&ps->lock, rflags);
-            return -1;
-        }
-
-        uint32_t offset = buf_addr & 0xFFF;
-        uint32_t can_do = 4096 - offset;
-        if (can_do > remaining) can_do = remaining;
-
-        cmd_tbl->prdt[prd_idx].dba = (uint32_t)(phys & 0xFFFFFFFF);
-        cmd_tbl->prdt[prd_idx].dbau = (uint32_t)(phys >> 32);
-        cmd_tbl->prdt[prd_idx].dbc = can_do - 1; // 0-based
-        cmd_tbl->prdt[prd_idx].i = 0;
-
-        buf_addr += can_do;
-        remaining -= can_do;
-        prd_idx++;
+    int prd_idx = ahci_fill_prdt(cmd_tbl, buffer, count * 512);
+    if (prd_idx < 0) {
+        spinlock_release_irqrestore(&ps->lock, rflags);
+        return -1;
     }
-
-    if (prd_idx > 0) cmd_tbl->prdt[prd_idx - 1].i = 1; // Interrupt on last
     cmd_hdr->prdtl = prd_idx;
 
     FIS_REG_H2D *fis = (FIS_REG_H2D*)&cmd_tbl->cfis;
