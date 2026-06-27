@@ -27,18 +27,6 @@ extern void log_fail(const char *msg);
 
 // === String Helpers ===
 
-static void dm_strcpy(char *dest, const char *src) {
-    while (*src) *dest++ = *src++;
-    *dest = 0;
-}
-
-
-static int dm_strlen(const char *s) {
-    int n = 0;
-    while (s[n]) n++;
-    return n;
-}
-
 static void dm_copy_fat_label(char *dst, const uint8_t *src) {
     int end = 11;
     while (end > 0 && src[end - 1] == ' ') end--;
@@ -59,7 +47,7 @@ static void disk_load_fat32_label(Disk *disk) {
     if (disk->read_sector(disk, 0, buffer) == 0 && buffer[510] == 0x55 && buffer[511] == 0xAA) {
         bpb = (FAT32_BootSector*)buffer;
         dm_copy_fat_label(label, bpb->volume_label);
-        if (label[0]) dm_strcpy(disk->label, label);
+        if (label[0]) strcpy(disk->label, label);
     }
 
     kfree(buffer);
@@ -361,7 +349,7 @@ void disk_register(Disk *disk) {
     // Auto-assign devname if empty
     if (disk->devname[0] == 0) {
         const char *n = disk_get_next_dev_name(disk->type);
-        dm_strcpy(disk->devname, n);
+        strcpy(disk->devname, n);
     }
 
     disk->registered = true;
@@ -384,7 +372,7 @@ void disk_register_partition(Disk *parent, uint32_t lba_offset, uint32_t sector_
     if (!part) return;
 
     // Build name: parent_devname + partition number (e.g. "sda1")
-    int len = dm_strlen(parent->devname);
+    int len = strlen(parent->devname);
     for (int i = 0; i < len; i++) part->devname[i] = parent->devname[i];
     part->devname[len] = '0' + part_num;
     part->devname[len + 1] = 0;
@@ -392,7 +380,7 @@ void disk_register_partition(Disk *parent, uint32_t lba_offset, uint32_t sector_
     part->type = parent->type;
     part->is_fat32 = is_fat32;
     part->is_esp = is_esp;
-    dm_strcpy(part->label, is_esp ? "EFI System Partition" : (is_fat32 ? "FAT32 Partition" : "Unknown Partition"));
+    strcpy(part->label, is_esp ? "EFI System Partition" : (is_fat32 ? "FAT32 Partition" : "Unknown Partition"));
     part->partition_lba_offset = lba_offset;
     part->total_sectors = sector_count;
     part->read_sector = parent->read_sector;
@@ -424,17 +412,17 @@ void disk_register_partition(Disk *parent, uint32_t lba_offset, uint32_t sector_
             char mount_path[32];
             mount_path[0] = '/';
             mount_path[1] = 'd'; mount_path[2] = 'e'; mount_path[3] = 'v'; mount_path[4] = '/';
-            dm_strcpy(mount_path + 5, part->devname);
+            strcpy(mount_path + 5, part->devname);
             
             if (vfs_mount(mount_path, part->devname, "fat32", fat32_get_realfs_ops(), vol)) {
                 char ok_msg[64];
-                dm_strcpy(ok_msg, "Mounted ");
-                dm_strcpy(ok_msg + 8, mount_path);
+                strcpy(ok_msg, "Mounted ");
+                strcpy(ok_msg + 8, mount_path);
                 log_ok(ok_msg);
             } else {
                 char fail_msg[64];
-                dm_strcpy(fail_msg, "Failed to mount ");
-                dm_strcpy(fail_msg + 16, mount_path);
+                strcpy(fail_msg, "Failed to mount ");
+                strcpy(fail_msg + 16, mount_path);
                 log_fail(fail_msg);
             }
         }
@@ -610,7 +598,7 @@ static void try_add_ata_drive(uint16_t port, bool slave, const char *name) {
 
         new_disk->devname[0] = 0; // Auto-assign
         new_disk->type = DISK_TYPE_IDE;
-        dm_strcpy(new_disk->label, name);
+        strcpy(new_disk->label, name);
         new_disk->read_sector = ata_read_sector;
         new_disk->write_sector = ata_write_sector;
         new_disk->read_sectors = ata_read_sectors;
@@ -933,7 +921,7 @@ static void disk_remove_partitions(Disk *parent) {
             char mount_path[32];
             mount_path[0] = '/';
             mount_path[1] = 'd'; mount_path[2] = 'e'; mount_path[3] = 'v'; mount_path[4] = '/';
-            dm_strcpy(mount_path + 5, p->devname);
+            strcpy(mount_path + 5, p->devname);
             
             extern bool vfs_umount(const char *mount_path);
             vfs_umount(mount_path);
