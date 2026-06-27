@@ -25,6 +25,15 @@ static void walk_sdt(struct acpi_sdt *sdt, aml_walk_ctx_t *ctx) {
     aml_walk_table(aml, len, ctx);
 }
 
+static void scan_ssdt(struct acpi_sdt *sdt, aml_walk_ctx_t *ctx) {
+    if (!sdt) return;
+    if (__builtin_memcmp(sdt->signature, "SSDT", 4) != 0) return;
+    const uint8_t *aml_ptr = (const uint8_t *)sdt + ACPI_SDT_HEADER_LEN;
+    size_t aml_len = sdt->length - ACPI_SDT_HEADER_LEN;
+    aml_find_i2c_controllers(aml_ptr, aml_len);
+    walk_sdt(sdt, ctx);
+}
+
 static void walk_all_ssdts(aml_walk_ctx_t *ctx) {
     struct acpi_rsdp *rsdp = acpi_get_rsdp();
     if (!rsdp) return;
@@ -72,16 +81,11 @@ static void walk_all_ssdts(aml_walk_ctx_t *ctx) {
                 }
             }
 
-            if (__builtin_memcmp(sdt->signature, "SSDT", 4) == 0) {
-                const uint8_t *aml_ptr = (const uint8_t *)sdt + ACPI_SDT_HEADER_LEN;
-                size_t aml_len = sdt->length - ACPI_SDT_HEADER_LEN;
-                aml_find_i2c_controllers(aml_ptr, aml_len);
-                walk_sdt(sdt, ctx);
-            }
+            scan_ssdt(sdt, ctx);
         }
     }
 
-    // Also scan RSDT 
+    // Also scan RSDT
     if (rsdp->rsdt_address) {
         struct acpi_sdt *rsdt = (struct acpi_sdt *)p2v(rsdp->rsdt_address);
         uint32_t *tables = (uint32_t *)((uint8_t *)rsdt + sizeof(struct acpi_sdt));
@@ -90,12 +94,7 @@ static void walk_all_ssdts(aml_walk_ctx_t *ctx) {
         for (size_t i = 0; i < entries; i++) {
             struct acpi_sdt *sdt = (struct acpi_sdt *)p2v(tables[i]);
             if (!sdt) continue;
-            if (__builtin_memcmp(sdt->signature, "SSDT", 4) == 0) {
-                const uint8_t *aml_ptr = (const uint8_t *)sdt + ACPI_SDT_HEADER_LEN;
-                size_t aml_len = sdt->length - ACPI_SDT_HEADER_LEN;
-                aml_find_i2c_controllers(aml_ptr, aml_len);
-                walk_sdt(sdt, ctx);
-            }
+            scan_ssdt(sdt, ctx);
         }
     }
 }
