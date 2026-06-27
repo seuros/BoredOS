@@ -878,35 +878,7 @@ static uint64_t fs_cmd_close(const syscall_args_t *args) {
   if (fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd])
     return -1;
 
-  if (proc->fd_kind[fd] == PROC_FD_KIND_FILE) {
-    process_fd_file_ref_t *ref = (process_fd_file_ref_t *)proc->fds[fd];
-    if (ref) {
-      ref->refs--;
-      if (ref->refs <= 0) {
-        if (ref->file)
-          vfs_close(ref->file);
-        kfree(ref);
-      }
-    }
-  } else if (proc->fd_kind[fd] == PROC_FD_KIND_PIPE_READ ||
-             proc->fd_kind[fd] == PROC_FD_KIND_PIPE_WRITE) {
-    process_fd_pipe_t *pipe = (process_fd_pipe_t *)proc->fds[fd];
-    if (pipe) {
-      if (proc->fd_kind[fd] == PROC_FD_KIND_PIPE_READ)
-        pipe->readers--;
-      else
-        pipe->writers--;
-      if (pipe->readers <= 0 && pipe->writers <= 0) {
-        kfree(pipe);
-      }
-    }
-  } else if (proc->fd_kind[fd] == PROC_FD_KIND_SOCKET) {
-    process_socket_release((process_fd_socket_t *)proc->fds[fd]);
-  }
-
-  proc->fds[fd] = NULL;
-  proc->fd_kind[fd] = PROC_FD_KIND_NONE;
-  proc->fd_flags[fd] = 0;
+  process_close_fd_inner(proc, fd);
   return 0;
 }
 

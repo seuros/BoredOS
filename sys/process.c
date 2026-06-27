@@ -80,7 +80,7 @@ static void process_release_slot(process_t *p) {
     process_init_signal_state(p);
 }
 
-static void process_close_fd_inner(process_t *proc, int fd) {
+void process_close_fd_inner(process_t *proc, int fd) {
     if (!proc || fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd]) {
         return;
     }
