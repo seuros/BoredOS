@@ -141,6 +141,7 @@ int fat32_seek(FAT32_FileHandle *handle, int offset, int whence);
 
 // Directory Operations
 bool fat32_mkdir(const char *path);
+void fat32_mkdir_recursive(const char *path);
 bool fat32_rmdir(const char *path);
 bool fat32_delete(const char *path);
 bool fat32_exists(const char *path);

@@ -2380,6 +2380,28 @@ bool fat32_mkdir(const char *path) {
     return true;
 }
 
+void fat32_mkdir_recursive(const char *path) {
+    char temp[256];
+    int i = 0;
+    if (path[0] == '/') {
+        temp[0] = '/';
+        i = 1;
+    }
+    while (path[i] && i < 255) {
+        temp[i] = path[i];
+        if (path[i] == '/') {
+            temp[i] = '\0';
+            fat32_mkdir(temp);
+            temp[i] = '/';
+        }
+        i++;
+    }
+    if (i > 0 && temp[i - 1] != '/') {
+        temp[i] = '\0';
+        fat32_mkdir(temp);
+    }
+}
+
 bool fat32_rmdir(const char *path) {
     if (parse_drive_from_path(&path) != 'A') return false;
     
