@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="branding/bOS_full_gradient_cropped.png" alt="BoredOS Logo" width="450" />
+  <img src="Base/Library/Images/branding/bOS_full_gradient_cropped.png" alt="BoredOS Logo" width="450" />
 
   <h3>A modern x86_64 hobbyist operating system built from the ground up.</h3>
 
@@ -16,7 +16,7 @@
 
 ---
 
-![Screenshot](branding/screenshot.jpg)
+![Screenshot](Base/Library/Images/branding/screenshot.jpg)
 
 > [!NOTE]
 > The screenshot above may represent a previous build and is subject to change as the UI evolves.
