@@ -118,7 +118,7 @@ $(KERNEL_ELF): $(OBJ_FILES) $(BEARSSL_LIB)
 
 external-fetch:
 	$(call PRINT_STEP,FETCHING EXTERNAL REPOSITORIES)
-	@sh tools/fetch_external.sh
+	@git submodule update --init --recursive
 
 build/sdk: external-fetch
 	$(call PRINT_STEP,BUILDING BOREDOS SDK (LIBC))

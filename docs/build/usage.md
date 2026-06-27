@@ -4,19 +4,26 @@ BoredOS utilizes a highly modular architecture. Core userland binaries, shells, 
 
 ---
 
-## Autonomic Dependency Fetching
+## External Dependencies
 
-External repositories are fetched and synchronized using the custom shell automation [tools/fetch_external.sh](file:///Users/chris/BoredOS/tools/fetch_external.sh). 
+External repositories are managed as Git submodules under `external/`. Each submodule is pinned to a specific commit in `.gitmodules`.
 
-### How it works:
-1. When compile commands like `make boredos.iso` or `make run` are executed, the Makefile triggers the `external-fetch` target.
-2. The fetcher iterates over the repositories registered in `fetch_external.sh`.
-3. **If a repository is not cloned**: It clones the repository using a fast, blobless clone (`--filter=blob:none`) and checks out the registered branch (usually `main`).
-4. **If a repository already exists**: Rather than making slow `git pull` calls that can trigger API rate limits, the script performs a fast, non-blocking check:
-   - It queries the remote Git server directly using `git ls-remote` 
-   - If the local Git hash matches the remote branch head hash, it completely skips pulling.
-   - If a new commit is detected on the remote, it pulls the updates.
-5. **Parallel Safety Lock**: It secures a directory lock (`build/fetch.lock`) to prevent concurrent parallel execution when running high-performance parallel compiles (e.g. `make -j10`).
+### Cloning with dependencies:
+```sh
+git clone --recurse-submodules https://github.com/BoredOS/BoredOS.git
+```
+
+### If you already cloned without submodules:
+```sh
+git submodule update --init --recursive
+```
+
+### Updating submodules to latest:
+```sh
+git submodule update --remote
+```
+
+When compile commands like `make boredos.iso` or `make run` are executed, the Makefile triggers the `external-fetch` target which runs `git submodule update --init --recursive` to ensure all dependencies are present.
 
 ---
 
@@ -48,7 +55,7 @@ graph TD
    - The build script first copies the `Base/` contents to `build/initrd/` as the starting skeleton.
    - Compiled binaries, assets, documentation, and modular `.bup` package files are then copied and staged into their respective paths within `build/initrd/` before compression.
 4. **Single-Pass Dispatch Target**:
-   - Targets like `make run` and `make run-hd` resolve platform-specific emulation rules at parse-time using GNU Make conditionals (`ifeq ($(HOST_OS),Darwin) run: run-mac ...`), completely preventing duplicate sub-make execution of `fetch_external.sh`.
+   - Targets like `make run` and `make run-hd` resolve platform-specific emulation rules at parse-time using GNU Make conditionals (`ifeq ($(HOST_OS),Darwin) run: run-mac ...`), completely preventing duplicate sub-make execution.
 
 ---
 
