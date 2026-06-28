@@ -42,6 +42,7 @@ typedef struct {
 typedef struct {
     int refs;
     uint8_t domain; // 1 = AF_UNIX, 2 = AF_INET
+    uint8_t type;   // 1 = SOCK_STREAM, 2 = SOCK_DGRAM
     uint8_t is_bound;
     uint8_t is_listening;
     uint8_t is_connected;
@@ -145,6 +146,7 @@ typedef struct process {
     } shm_mappings[32];
     uint32_t shm_mapping_count;
 
+    char ping_result[64];
     poll_wtable_t poll_table;
 } __attribute__((aligned(16))) process_t;
 

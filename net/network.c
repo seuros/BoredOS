@@ -28,7 +28,42 @@ static struct pbuf *tcp_recv_queue = NULL;
 static int tcp_connect_done = 0;
 static int tcp_connect_error = 0;
 static int tcp_closed = 0;
-static uint32_t tcp_owner_pid = 0; 
+static uint32_t tcp_owner_pid = 0;
+
+typedef struct udp_packet {
+    struct pbuf *p;
+    ip_addr_t addr;
+    u16_t port;
+    struct udp_packet *next;
+} udp_packet_t;
+
+static void udp_socket_recv_callback(void *arg, struct udp_pcb *pcb, struct pbuf *p, const ip_addr_t *addr, u16_t port) {
+    (void)pcb;
+    process_fd_socket_t *sock = (process_fd_socket_t *)arg;
+    if (!sock || !p) return;
+
+    udp_packet_t *pack = (udp_packet_t *)kmalloc(sizeof(udp_packet_t));
+    if (!pack) {
+        pbuf_free(p);
+        return;
+    }
+    pack->p = p;
+    pack->addr = *addr;
+    pack->port = port;
+    pack->next = NULL;
+
+    if (sock->recv_queue == NULL) {
+        sock->recv_queue = pack;
+    } else {
+        udp_packet_t *curr = (udp_packet_t *)sock->recv_queue;
+        while (curr->next) {
+            curr = curr->next;
+        }
+        curr->next = pack;
+    }
+
+    wait_queue_wake_all(&sock->rx_waitq);
+} 
 
 static err_t tcp_recv_callback(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, err_t err) {
     (void)arg; (void)tpcb; (void)err;
@@ -104,10 +139,7 @@ int network_init(void) {
         serial_write("[NET] DHCP Failed during init\n");
     }
 
-    // Set default DNS server (1.1.1.1)
-    ip_addr_t dns1;
-    IP_ADDR4(&dns1, 1, 1, 1, 1);
-    dns_setserver(0, &dns1);
+
 
     return dhcp_res;
 }
@@ -467,107 +499,12 @@ int network_tcp_accept(void) {
     }
 }
 
-static ip_addr_t dns_resolved_ip;
-static int dns_done = 0;
-static void dns_callback(const char *name, const ip_addr_t *ipaddr, void *callback_arg) {
-    (void)name; (void)callback_arg;
-    serial_write("[DNS] Callback triggered\n");
-    if (ipaddr) {
-        dns_resolved_ip = *ipaddr;
-        dns_done = 1;
-    } else {
-        dns_done = -1;
-    }
-}
 
-int network_dns_lookup(const char *name, ipv4_address_t *out_ip) {
-    if (!lwip_initialized) return -1;
-    
-    dns_done = 0;
-    uint64_t flags = spinlock_acquire_irqsave(&network_lock);
-    err_t err = dns_gethostbyname(name, &dns_resolved_ip, dns_callback, NULL);
-    spinlock_release_irqrestore(&network_lock, flags);
-
-    if (err == ERR_OK) {
-        flags = spinlock_acquire_irqsave(&network_lock);
-        u32_t addr = ip4_addr_get_u32(ip_2_ip4(&dns_resolved_ip));
-        out_ip->bytes[0] = (addr >> 0) & 0xFF;
-        out_ip->bytes[1] = (addr >> 8) & 0xFF;
-        out_ip->bytes[2] = (addr >> 16) & 0xFF;
-        out_ip->bytes[3] = (addr >> 24) & 0xFF;
-        spinlock_release_irqrestore(&network_lock, flags);
-        return 0;
-    } else if (err == ERR_INPROGRESS) {
-        uint32_t start = sys_now();
-        asm volatile("sti");
-        while (sys_now() - start < 10000) {
-            network_process_frames();
-            if (dns_done == 1 || dns_done == -1) {
-                flags = spinlock_acquire_irqsave(&network_lock);
-                if (dns_done == 1) {
-                    u32_t addr = ip4_addr_get_u32(ip_2_ip4(&dns_resolved_ip));
-                    out_ip->bytes[0] = (addr >> 0) & 0xFF;
-                    out_ip->bytes[1] = (addr >> 8) & 0xFF;
-                    out_ip->bytes[2] = (addr >> 16) & 0xFF;
-                    out_ip->bytes[3] = (addr >> 24) & 0xFF;
-                    spinlock_release_irqrestore(&network_lock, flags);
-                    return 0;
-                }
-                if (dns_done == -1) { 
-                    spinlock_release_irqrestore(&network_lock, flags);
-                    return -1; 
-                }
-                spinlock_release_irqrestore(&network_lock, flags);
-            }
-            if (sys_now() - start >= 5000) {
-                static uint32_t last_print = 0;
-                if (sys_now() - last_print > 1000) {
-                    serial_write("[NET] network_dns_lookup waiting... elapsed: ");
-                    char buf[32];
-                    itoa(sys_now() - start, buf);
-                    serial_write(buf);
-                    serial_write(" ms\n");
-                    last_print = sys_now();
-                }
-            }
-            if (sys_now() - start > 100) {
-                k_sleep(1);
-            } else {
-                k_delay(50);
-            }
-        }
-    }
-    return -1;
-}
-
-int network_set_dns_server(const ipv4_address_t *ip) {
-    if (!lwip_initialized) return -1;
-    uint64_t flags = spinlock_acquire_irqsave(&network_lock);
-    ip_addr_t addr;
-    IP_SET_TYPE_VAL(addr, IPADDR_TYPE_V4);
-    IP4_ADDR(ip_2_ip4(&addr), ip->bytes[0], ip->bytes[1], ip->bytes[2], ip->bytes[3]);
-    dns_setserver(0, &addr);
-    spinlock_release_irqrestore(&network_lock, flags);
-    return 0;
-}
 
 int network_get_gateway_ip(ipv4_address_t *ip) {
     if (!lwip_initialized) return -1;
     uint64_t flags = spinlock_acquire_irqsave(&network_lock);
     u32_t addr = ip4_addr_get_u32(netif_ip4_gw(&nic_netif));
-    ip->bytes[0] = (addr >> 0) & 0xFF;
-    ip->bytes[1] = (addr >> 8) & 0xFF;
-    ip->bytes[2] = (addr >> 16) & 0xFF;
-    ip->bytes[3] = (addr >> 24) & 0xFF;
-    spinlock_release_irqrestore(&network_lock, flags);
-    return 0;
-}
-
-int network_get_dns_ip(ipv4_address_t *ip) {
-    if (!lwip_initialized) return -1;
-    uint64_t flags = spinlock_acquire_irqsave(&network_lock);
-    const ip_addr_t *dns = dns_getserver(0);
-    u32_t addr = ip4_addr_get_u32(ip_2_ip4(dns));
     ip->bytes[0] = (addr >> 0) & 0xFF;
     ip->bytes[1] = (addr >> 8) & 0xFF;
     ip->bytes[2] = (addr >> 16) & 0xFF;
@@ -602,72 +539,77 @@ int udp_send_packet(const ipv4_address_t* dest_ip, uint16_t dest_port, uint16_t 
     return -1; 
 }
 
-static int ping_replies = 0;
+typedef struct {
+    volatile int done;
+    volatile uint32_t start;
+} ping_state_t;
+
 static u16_t ping_seq = 0;
+
 static u8_t ping_recv(void *arg, struct raw_pcb *pcb, struct pbuf *p, const ip_addr_t *addr) {
-    (void)arg; (void)pcb; (void)addr;
-    if (p->tot_len >= 8) {
+    (void)pcb; (void)addr;
+    ping_state_t *state = (ping_state_t *)arg;
+
+    if (state && !state->done && p->tot_len >= 8) {
         u8_t *data = (u8_t *)p->payload;
         if (data[0] == 0) {
-            ping_replies++;
+            state->done = 1;
         } else if (p->tot_len >= 28 && data[0] == 0x45 && data[20] == 0) {
-            ping_replies++;
+            state->done = 1;
         }
     }
-    pbuf_free(p);
-    return 1;
+    return 0;
 }
 
 int network_icmp_single_ping(ipv4_address_t *dest) {
     if (!lwip_initialized) return -2;
-    
-    // Synchronize network state during ICMP request to prevent re-entrancy issues
+
+    ping_state_t state = { .done = 0, .start = 0 };
+
     uint64_t flags = spinlock_acquire_irqsave(&network_lock);
     struct raw_pcb *pcb = raw_new(IP_PROTO_ICMP);
     if (!pcb) { spinlock_release_irqrestore(&network_lock, flags); return -1; }
-    raw_recv(pcb, ping_recv, NULL);
+    raw_recv(pcb, ping_recv, &state);
     raw_bind(pcb, IP_ADDR_ANY);
+
     ip_addr_t dest_addr;
     IP_SET_TYPE_VAL(dest_addr, IPADDR_TYPE_V4);
     IP4_ADDR(ip_2_ip4(&dest_addr), dest->bytes[0], dest->bytes[1], dest->bytes[2], dest->bytes[3]);
-    
-    struct pbuf *p = pbuf_alloc(PBUF_IP, 8 + 56, PBUF_RAM); // 64 bytes total
+
+    struct pbuf *p = pbuf_alloc(PBUF_IP, 8 + 56, PBUF_RAM);
     if (!p) { raw_remove(pcb); spinlock_release_irqrestore(&network_lock, flags); return -1; }
     u8_t *data = (u8_t *)p->payload;
     data[0] = 8; data[1] = 0; data[2] = 0; data[3] = 0;
-    data[4] = 0; data[5] = 1; data[6] = (u8_t)(ping_seq >> 8); data[7] = (u8_t)(ping_seq & 0xFF);
+    data[4] = 0; data[5] = 1;
+    data[6] = (u8_t)(ping_seq >> 8); data[7] = (u8_t)(ping_seq & 0xFF);
     ping_seq++;
     for (int j = 0; j < 56; j++) data[8+j] = (u8_t)('a' + (j % 26));
-    
-    // Calculate ICMP Checksum
+
     u16_t chk = icmp_cksum(data, 8 + 56);
     data[2] = (u8_t)(chk & 0xFF);
     data[3] = (u8_t)(chk >> 8);
-    
-    ping_replies = 0;
-    uint32_t start = sys_now();
+
+    state.start = sys_now();
     raw_sendto(pcb, p, &dest_addr);
     pbuf_free(p);
     spinlock_release_irqrestore(&network_lock, flags);
-    
-    asm volatile("sti");
-    int rtt = -1;
-    while (sys_now() - start < 1000) {
+
+    while (1) {
         network_process_frames();
         flags = spinlock_acquire_irqsave(&network_lock);
-        if (ping_replies > 0) {
-            rtt = (int)(sys_now() - start);
-            spinlock_release_irqrestore(&network_lock, flags);
-            break;
-        }
+        int got = state.done;
         spinlock_release_irqrestore(&network_lock, flags);
-        k_delay(10);
+        if (got) break;
+        if ((sys_now() - state.start) >= 2000) break;
+        k_delay(5);
     }
-    
+
     flags = spinlock_acquire_irqsave(&network_lock);
     raw_remove(pcb);
     spinlock_release_irqrestore(&network_lock, flags);
-    return rtt;
+
+    if (!state.done) return -1;
+    return (int)(sys_now() - state.start);
 }
 
 int network_get_frames_received(void) { return (int)lwip_stats.link.recv; }
@@ -767,6 +709,24 @@ int network_socket_bind(void *s, uint32_t ip_val, uint16_t port) {
 
     process_fd_socket_t *sock = (process_fd_socket_t *)s;
     uint64_t flags = spinlock_acquire_irqsave(&network_lock);
+
+    if (sock->type == 2) {
+        if (!sock->pcb) {
+            sock->pcb = udp_new();
+            if (!sock->pcb) {
+                spinlock_release_irqrestore(&network_lock, flags);
+                return -1;
+            }
+            udp_recv((struct udp_pcb *)sock->pcb, udp_socket_recv_callback, sock);
+        }
+        ip_addr_t bind_ip;
+        IP_SET_TYPE_VAL(bind_ip, IPADDR_TYPE_V4);
+        ip_2_ip4(&bind_ip)->addr = ip_val;
+        err_t err = udp_bind((struct udp_pcb *)sock->pcb, &bind_ip, port);
+        spinlock_release_irqrestore(&network_lock, flags);
+        return err == ERR_OK ? 0 : -1;
+    }
+
     serial_write("[network] bind: sock->pcb is ");
     if (sock->pcb) {
         serial_write("not NULL\n");
@@ -827,6 +787,24 @@ int network_socket_listen(void *s) {
 int network_socket_connect(void *s, uint32_t ip_val, uint16_t port) {
     process_fd_socket_t *sock = (process_fd_socket_t *)s;
     uint64_t flags = spinlock_acquire_irqsave(&network_lock);
+
+    if (sock->type == 2) {
+        if (!sock->pcb) {
+            sock->pcb = udp_new();
+            if (!sock->pcb) {
+                spinlock_release_irqrestore(&network_lock, flags);
+                return -1;
+            }
+            udp_recv((struct udp_pcb *)sock->pcb, udp_socket_recv_callback, sock);
+        }
+        ip_addr_t conn_ip;
+        IP_SET_TYPE_VAL(conn_ip, IPADDR_TYPE_V4);
+        ip_2_ip4(&conn_ip)->addr = ip_val;
+        err_t err = udp_connect((struct udp_pcb *)sock->pcb, &conn_ip, port);
+        spinlock_release_irqrestore(&network_lock, flags);
+        return err == ERR_OK ? 0 : -1;
+    }
+
     if (sock->pcb) {
         tcp_abort((struct tcp_pcb *)sock->pcb);
         sock->pcb = NULL;
@@ -879,9 +857,80 @@ int network_socket_connect(void *s, uint32_t ip_val, uint16_t port) {
     return -1;
 }
 
+int network_socket_recvfrom(void *s, void *buf, size_t max_len, int nonblock, uint32_t *from_ip, uint16_t *from_port) {
+    process_fd_socket_t *sock = (process_fd_socket_t *)s;
+    if (!sock) return -1;
+
+    asm volatile("sti");
+    while (sock->recv_queue == NULL) {
+        network_process_frames();
+        if (nonblock) {
+            return -2; // EWOULDBLOCK
+        }
+        k_sleep(1);
+    }
+
+    uint64_t flags = spinlock_acquire_irqsave(&network_lock);
+    if (sock->recv_queue == NULL) {
+        spinlock_release_irqrestore(&network_lock, flags);
+        return -2;
+    }
+    udp_packet_t *pack = (udp_packet_t *)sock->recv_queue;
+    sock->recv_queue = pack->next;
+    spinlock_release_irqrestore(&network_lock, flags);
+
+    size_t to_copy = max_len;
+    if (to_copy > pack->p->tot_len) to_copy = pack->p->tot_len;
+    pbuf_copy_partial(pack->p, buf, (u16_t)to_copy, 0);
+
+    if (from_ip) *from_ip = ip_2_ip4(&pack->addr)->addr;
+    if (from_port) *from_port = pack->port;
+
+    int copied = (int)to_copy;
+    pbuf_free(pack->p);
+    kfree(pack);
+
+    return copied;
+}
+
+int network_socket_sendto(void *s, const void *data, size_t len, uint32_t dest_ip, uint16_t dest_port) {
+    process_fd_socket_t *sock = (process_fd_socket_t *)s;
+    if (!sock) return -1;
+
+    uint64_t flags = spinlock_acquire_irqsave(&network_lock);
+    if (!sock->pcb) {
+        sock->pcb = udp_new();
+        if (!sock->pcb) {
+            spinlock_release_irqrestore(&network_lock, flags);
+            return -1;
+        }
+        udp_recv((struct udp_pcb *)sock->pcb, udp_socket_recv_callback, sock);
+    }
+
+    struct pbuf *p = pbuf_alloc(PBUF_TRANSPORT, (u16_t)len, PBUF_RAM);
+    if (!p) {
+        spinlock_release_irqrestore(&network_lock, flags);
+        return -1;
+    }
+    memcpy(p->payload, data, len);
+
+    ip_addr_t dst_addr;
+    IP_SET_TYPE_VAL(dst_addr, IPADDR_TYPE_V4);
+    ip_2_ip4(&dst_addr)->addr = dest_ip;
+
+    err_t err = udp_sendto((struct udp_pcb *)sock->pcb, p, &dst_addr, dest_port);
+    pbuf_free(p);
+    spinlock_release_irqrestore(&network_lock, flags);
+
+    return err == ERR_OK ? (int)len : -1;
+}
+
 int network_socket_recv(void *s, void *buf, size_t max_len, int nonblock) {
     process_fd_socket_t *sock = (process_fd_socket_t *)s;
     if (!lwip_initialized) return -1;
+    if (sock->type == 2) {
+        return network_socket_recvfrom(s, buf, max_len, nonblock, NULL, NULL);
+    }
 
     uint32_t start = sys_now();
     asm volatile("sti");
@@ -928,6 +977,13 @@ int network_socket_recv(void *s, void *buf, size_t max_len, int nonblock) {
 
 int network_socket_send(void *s, const void *data, size_t len, int nonblock) {
     process_fd_socket_t *sock = (process_fd_socket_t *)s;
+    if (sock->type == 2) {
+        if (!sock->pcb) return -1;
+        struct udp_pcb *upcb = (struct udp_pcb *)sock->pcb;
+        if (ip_addr_isany(&upcb->remote_ip)) return -1;
+        return network_socket_sendto(s, data, len, ip_2_ip4(&upcb->remote_ip)->addr, upcb->remote_port);
+    }
+
     if (!sock->pcb) return -1;
     uint64_t flags = spinlock_acquire_irqsave(&network_lock);
 
@@ -958,21 +1014,35 @@ void network_socket_close(void *s) {
     process_fd_socket_t *sock = (process_fd_socket_t *)s;
     uint64_t flags = spinlock_acquire_irqsave(&network_lock);
     if (sock->recv_queue) {
-        pbuf_free((struct pbuf *)sock->recv_queue);
+        if (sock->type == 2) {
+            udp_packet_t *curr = (udp_packet_t *)sock->recv_queue;
+            while (curr) {
+                udp_packet_t *next = curr->next;
+                pbuf_free(curr->p);
+                kfree(curr);
+                curr = next;
+            }
+        } else {
+            pbuf_free((struct pbuf *)sock->recv_queue);
+        }
         sock->recv_queue = NULL;
     }
     if (sock->pcb) {
-        tcp_arg((struct tcp_pcb *)sock->pcb, NULL);
-        if (!sock->is_listening) {
-            tcp_recv((struct tcp_pcb *)sock->pcb, NULL);
-            tcp_err((struct tcp_pcb *)sock->pcb, NULL);
+        if (sock->type == 2) {
+            udp_remove((struct udp_pcb *)sock->pcb);
         } else {
-            tcp_accept((struct tcp_pcb *)sock->pcb, NULL);
-        }
+            tcp_arg((struct tcp_pcb *)sock->pcb, NULL);
+            if (!sock->is_listening) {
+                tcp_recv((struct tcp_pcb *)sock->pcb, NULL);
+                tcp_err((struct tcp_pcb *)sock->pcb, NULL);
+            } else {
+                tcp_accept((struct tcp_pcb *)sock->pcb, NULL);
+            }
 
-        err_t err = tcp_close((struct tcp_pcb *)sock->pcb);
-        if (err != ERR_OK) {
-            tcp_abort((struct tcp_pcb *)sock->pcb);
+            err_t err = tcp_close((struct tcp_pcb *)sock->pcb);
+            if (err != ERR_OK) {
+                tcp_abort((struct tcp_pcb *)sock->pcb);
+            }
         }
         sock->pcb = NULL;
     }
