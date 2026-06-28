@@ -28,6 +28,7 @@ typedef struct {
     int offset;
     bool is_root;
     bool is_metadata_dir;
+    vfs_file_t *disk_file;
 } bootfs_handle_t;
 
 static void* bootfs_open(void *fs_private, const char *path, const char *mode);
@@ -117,18 +118,63 @@ static void* bootfs_open(void *fs_private, const char *path, const char *mode) {
     memset(h, 0, sizeof(bootfs_handle_t));
     strcpy(h->path, path);
     h->offset = 0;
+    h->disk_file = NULL;
     
     if (path[0] == '\0') {
         h->is_root = true;
     } else if (is_metadata_path(path) && path[8] == '\0') {
         h->is_metadata_dir = true;
+    } else if (strcmp(path, "kernel") == 0 || strcmp(path, "initrd") == 0 || strcmp(path, "initrd.tar") == 0 || is_metadata_file(path) || bootfs_find_custom(path)) {
+    } else {
+        if (strncmp(path, "efi/", 4) == 0 || strcmp(path, "efi") == 0) {
+            kfree(h);
+            return NULL;
+        }
+        char disk_path[256];
+        vfs_file_t *f = NULL;
+        
+        strcpy(disk_path, "/boot/efi/");
+        strcat(disk_path, path);
+        f = vfs_open(disk_path, mode);
+        if (!f) {
+            strcpy(disk_path, "/");
+            strcat(disk_path, path);
+            f = vfs_open(disk_path, mode);
+        }
+        
+        if (f) {
+            h->disk_file = f;
+        } else {
+            if (mode[0] == 'w' || mode[0] == 'a') {
+                strcpy(disk_path, "/boot/efi/");
+                strcat(disk_path, path);
+                f = vfs_open(disk_path, mode);
+                if (!f) {
+                    strcpy(disk_path, "/");
+                    strcat(disk_path, path);
+                    f = vfs_open(disk_path, mode);
+                }
+                h->disk_file = f;
+            }
+        }
+        
+        if (!h->disk_file) {
+            kfree(h);
+            return NULL;
+        }
     }
     
     return h;
 }
 
 static void bootfs_close(void *fs_private, void *handle) {
-    if (handle) kfree(handle);
+    bootfs_handle_t *h = (bootfs_handle_t*)handle;
+    if (h) {
+        if (h->disk_file) {
+            vfs_close(h->disk_file);
+        }
+        kfree(h);
+    }
 }
 
 static int generate_metadata_content(const char *file, char *buffer, int max_size) {
@@ -178,16 +224,18 @@ static int bootfs_read(void *fs_private, void *handle, void *buf, int size) {
     bootfs_handle_t *h = (bootfs_handle_t*)handle;
     if (!h || !buf || size <= 0) return -1;
     
+    if (h->disk_file) {
+        int ret = vfs_read(h->disk_file, buf, size);
+        if (ret > 0) h->offset += ret;
+        return ret;
+    }
+    
     char *content_buffer = (char*)kmalloc(4096);
     if (!content_buffer) return -1;
     
     int content_len = 0;
     
-    if (strcmp(h->path, "limine.conf") == 0) {
-        memcpy(content_buffer, g_bootfs_state.limine_conf, 
-                 g_bootfs_state.limine_conf_len);
-        content_len = g_bootfs_state.limine_conf_len;
-    } else if (strcmp(h->path, "kernel") == 0) {
+    if (strcmp(h->path, "kernel") == 0) {
         strcpy(content_buffer, "Kernel reference\nSize: ");
         char size_buf[32];
         itoa(g_bootfs_state.kernel_size, size_buf);
@@ -246,35 +294,24 @@ static int bootfs_write(void *fs_private, void *handle, const void *buf, int siz
     bootfs_handle_t *h = (bootfs_handle_t*)handle;
     if (!h || !buf || size <= 0) return -1;
     
-    if (strcmp(h->path, "limine.conf") != 0) {
-        return -1; 
+    if (h->disk_file) {
+        int ret = vfs_write(h->disk_file, buf, size);
+        if (ret > 0) h->offset += ret;
+        return ret;
     }
     
-    int max_write = 2048 - h->offset;
-    if (max_write <= 0) return -1;
-    
-    int write_size = (size < max_write) ? size : max_write;
-    memcpy(g_bootfs_state.limine_conf + h->offset, buf, write_size);
-    h->offset += write_size;
-    
-    if (h->offset > g_bootfs_state.limine_conf_len) {
-        g_bootfs_state.limine_conf_len = h->offset;
-    }
-    
-    if (g_limine_conf_path[0] != '\0') {
-        vfs_file_t *fat_conf = vfs_open(g_limine_conf_path, "w");
-        if (fat_conf) {
-            vfs_write(fat_conf, g_bootfs_state.limine_conf, g_bootfs_state.limine_conf_len);
-            vfs_close(fat_conf);
-        }
-    }
-    
-    return write_size;
+    return -1;
 }
 
 static int bootfs_seek(void *fs_private, void *handle, int offset, int whence) {
     bootfs_handle_t *h = (bootfs_handle_t*)handle;
     if (!h) return -1;
+    
+    if (h->disk_file) {
+        int ret = vfs_seek(h->disk_file, offset, whence);
+        if (ret >= 0) h->offset = ret;
+        return ret;
+    }
     
     switch (whence) {
         case 0: // SEEK_SET
@@ -298,20 +335,21 @@ static int bootfs_readdir(void *fs_private, const char *rel_path, vfs_dirent_t *
     if (!rel_path) rel_path = "";
     if (rel_path[0] == '/') rel_path++;
     
+    if (strncmp(rel_path, "efi/", 4) == 0 || strcmp(rel_path, "efi") == 0) {
+        return 0;
+    }
+    
     int count = 0;
     int found_so_far = 0;
     
     if (rel_path[0] == '\0') {
         const char *boot_files[] = {
-            "limine.conf", "kernel", "initrd", "initrd.tar", "metadata"
+            "kernel", "initrd", "initrd.tar", "metadata"
         };
-        for (int i = 0; i < 5; i++) {
+        for (int i = 0; i < 4; i++) {
             if (found_so_far >= offset) {
                 strcpy(entries[count].name, boot_files[i]);
-                if (strcmp(boot_files[i], "limine.conf") == 0) {
-                    entries[count].size = g_bootfs_state.limine_conf_len;
-                    entries[count].is_directory = 0;
-                } else if (strcmp(boot_files[i], "kernel") == 0) {
+                if (strcmp(boot_files[i], "kernel") == 0) {
                     entries[count].size = g_bootfs_state.kernel_size;
                     entries[count].is_directory = 0;
                 } else if (strcmp(boot_files[i], "initrd") == 0 || strcmp(boot_files[i], "initrd.tar") == 0) {
@@ -321,6 +359,32 @@ static int bootfs_readdir(void *fs_private, const char *rel_path, vfs_dirent_t *
                     entries[count].size = 0;
                     entries[count].is_directory = 1;
                 }
+                count++;
+                if (count >= max) return count;
+            }
+            found_so_far++;
+        }
+
+        // Dynamically add bootloader configuration files if they exist on the ESP or root partition
+        vfs_dirent_t part_entries[64];
+        int part_count = vfs_list_directory("/boot/efi", part_entries, 64, 0);
+        if (part_count <= 0) {
+            part_count = vfs_list_directory("/", part_entries, 64, 0);
+        }
+        
+        for (int i = 0; i < part_count; i++) {
+            if (part_count > 0 && strcmp(part_entries[i].name, "sys") == 0) continue;
+            if (part_count > 0 && strcmp(part_entries[i].name, "proc") == 0) continue;
+            if (part_count > 0 && strcmp(part_entries[i].name, "dev") == 0) continue;
+            if (part_count > 0 && strcmp(part_entries[i].name, "boot") == 0) continue;
+            if (part_count > 0 && strcmp(part_entries[i].name, "bin") == 0) continue;
+            if (part_count > 0 && strcmp(part_entries[i].name, "initrd.tar.lz4") == 0) continue;
+            if (part_count > 0 && strcmp(part_entries[i].name, "boredos.elf") == 0) continue;
+            
+            if (found_so_far >= offset) {
+                strcpy(entries[count].name, part_entries[i].name);
+                entries[count].size = part_entries[i].size;
+                entries[count].is_directory = part_entries[i].is_directory;
                 count++;
                 if (count >= max) return count;
             }
@@ -367,41 +431,33 @@ static bool bootfs_mkdir(void *fs_private, const char *rel_path) {
 }
 
 static bool bootfs_rmdir(void *fs_private, const char *rel_path) {
-    if (!rel_path) rel_path = "";
-    if (rel_path[0] == '/') rel_path++;
-    
-    if (strcmp(rel_path, "metadata") == 0) {
-        return false; /* metadata directory is protected */
-    }
-    
-    return false; /* no other directories to remove */
+    return false;
 }
 
 static bool bootfs_unlink(void *fs_private, const char *rel_path) {
     if (!rel_path) return false;
     if (rel_path[0] == '/') rel_path++;
     
-    /* Only limine.conf can be deleted */
-    if (strcmp(rel_path, "limine.conf") != 0) {
+    if (strncmp(rel_path, "efi/", 4) == 0 || strcmp(rel_path, "efi") == 0) {
         return false;
     }
     
-    /* Clear the bootfs state */
-    g_bootfs_state.limine_conf[0] = '\0';
-    g_bootfs_state.limine_conf_len = 0;
-    
-    /* Delete from partition */
-    extern bool vfs_delete(const char *path);
-    
-    bool result = vfs_delete("/limine.conf");
-    
-    if (result) {
-        serial_write("[BOOTFS] Deleted limine.conf from partition\n");
-    } else {
-        serial_write("[BOOTFS] Warning: Could not delete limine.conf from partition\n");
+    if (strcmp(rel_path, "kernel") == 0 || strcmp(rel_path, "initrd") == 0 || strcmp(rel_path, "initrd.tar") == 0 || strcmp(rel_path, "metadata") == 0 || is_metadata_file(rel_path)) {
+        return false;
     }
     
-    return result;
+    char disk_path[256];
+    strcpy(disk_path, "/boot/efi/");
+    strcat(disk_path, rel_path);
+    if (vfs_exists(disk_path)) {
+        return vfs_delete(disk_path);
+    }
+    strcpy(disk_path, "/");
+    strcat(disk_path, rel_path);
+    if (vfs_exists(disk_path)) {
+        return vfs_delete(disk_path);
+    }
+    return false;
 }
 
 static bool bootfs_rename(void *fs_private, const char *old_path, const char *new_path) {
@@ -413,73 +469,59 @@ static bool bootfs_rename(void *fs_private, const char *old_path, const char *ne
     if (old_rel[0] == '/') old_rel++;
     if (new_rel[0] == '/') new_rel++;
     
-    /* Only limine.conf can be renamed */
-    if (strcmp(old_rel, "limine.conf") != 0) {
+    if (strncmp(old_rel, "efi/", 4) == 0 || strcmp(old_rel, "efi") == 0) {
         return false;
     }
     
-    /* kernel and initrd are protected */
-    if (strcmp(new_rel, "kernel") == 0 || strcmp(new_rel, "initrd") == 0) {
+    if (strcmp(old_rel, "kernel") == 0 || strcmp(old_rel, "initrd") == 0 || strcmp(old_rel, "initrd.tar") == 0 || strcmp(old_rel, "metadata") == 0 || is_metadata_file(old_rel)) {
         return false;
     }
     
-    /* metadata directory is protected */
-    if (strncmp(new_rel, "metadata", 8) == 0) {
-        return false;
+    char old_disk_path[256];
+    char new_disk_path[256];
+    
+    strcpy(old_disk_path, "/boot/efi/");
+    strcat(old_disk_path, old_rel);
+    if (vfs_exists(old_disk_path)) {
+        strcpy(new_disk_path, "/boot/efi/");
+        strcat(new_disk_path, new_rel);
+        return vfs_rename(old_disk_path, new_disk_path);
     }
     
-    extern bool vfs_rename(const char *old_path, const char *new_path);
-    
-    char new_partition_path[256];
-    strcpy(new_partition_path, "/");
-    
-    /* Manually append new_rel to new_partition_path */
-    int path_len = 0;
-    while (new_partition_path[path_len]) path_len++;
-    
-    int rel_len = 0;
-    while (new_rel[rel_len]) rel_len++;
-    
-    if (path_len + rel_len >= 256) {
-        serial_write("[BOOTFS] Error: new path too long\n");
-        return false;
+    strcpy(old_disk_path, "/");
+    strcat(old_disk_path, old_rel);
+    if (vfs_exists(old_disk_path)) {
+        strcpy(new_disk_path, "/");
+        strcat(new_disk_path, new_rel);
+        return vfs_rename(old_disk_path, new_disk_path);
     }
-    
-    memcpy(new_partition_path + path_len, new_rel, rel_len + 1);
-    
-    /* Rename on partition filesystem */
-    bool result = vfs_rename("/limine.conf", new_partition_path);
-    
-    if (result) {
-        serial_write("[BOOTFS] Renamed limine.conf to ");
-        serial_write(new_rel);
-        serial_write("\n");
-    } else {
-        serial_write("[BOOTFS] Warning: Could not rename limine.conf to ");
-        serial_write(new_rel);
-        serial_write("\n");
-    }
-    
-    return result;
+    return false;
 }
 
 static bool bootfs_exists(void *fs_private, const char *rel_path) {
     if (!rel_path) rel_path = "";
     if (rel_path[0] == '/') rel_path++;
     
+    if (strncmp(rel_path, "efi/", 4) == 0 || strcmp(rel_path, "efi") == 0) {
+        return false;
+    }
+    
     if (rel_path[0] == '\0') return true;
     
-    if (strcmp(rel_path, "limine.conf") == 0) return true;
-    if (strcmp(rel_path, "efi") == 0) return true;
     if (strcmp(rel_path, "kernel") == 0) return true;
     if (strcmp(rel_path, "initrd") == 0) return true;
     if (strcmp(rel_path, "initrd.tar") == 0) return true;
-    
     if (strcmp(rel_path, "metadata") == 0) return true;
     if (is_metadata_file(rel_path)) return true;
     if (bootfs_find_custom(rel_path)) return true;
     
-    return false;
+    char disk_path[256];
+    strcpy(disk_path, "/boot/efi/");
+    strcat(disk_path, rel_path);
+    if (vfs_exists(disk_path)) return true;
+    strcpy(disk_path, "/");
+    strcat(disk_path, rel_path);
+    return vfs_exists(disk_path);
 }
 
 static bool bootfs_is_dir(void *fs_private, const char *rel_path) {
@@ -498,18 +540,15 @@ static int bootfs_get_info(void *fs_private, const char *rel_path, vfs_dirent_t 
     if (!rel_path) rel_path = "";
     if (rel_path[0] == '/') rel_path++;
     
+    if (strncmp(rel_path, "efi/", 4) == 0 || strcmp(rel_path, "efi") == 0) {
+        return -1;
+    }
+    
     memset(info, 0, sizeof(vfs_dirent_t));
     
     if (rel_path[0] == '\0') {
         strcpy(info->name, "/");
         info->is_directory = 1;
-        return 0;
-    }
-    
-    if (strcmp(rel_path, "limine.conf") == 0) {
-        strcpy(info->name, "limine.conf");
-        info->size = g_bootfs_state.limine_conf_len;
-        info->is_directory = 0;
         return 0;
     }
     
@@ -555,12 +594,37 @@ static int bootfs_get_info(void *fs_private, const char *rel_path, vfs_dirent_t 
         return 0;
     }
     
+    char disk_path[256];
+    strcpy(disk_path, "/boot/efi/");
+    strcat(disk_path, rel_path);
+    vfs_dirent_t v_info;
+    if (vfs_get_info(disk_path, &v_info) == 0) {
+        strcpy(info->name, rel_path);
+        info->size = v_info.size;
+        info->is_directory = v_info.is_directory;
+        info->write_date = v_info.write_date;
+        info->write_time = v_info.write_time;
+        return 0;
+    }
+    
+    strcpy(disk_path, "/");
+    strcat(disk_path, rel_path);
+    if (vfs_get_info(disk_path, &v_info) == 0) {
+        strcpy(info->name, rel_path);
+        info->size = v_info.size;
+        info->is_directory = v_info.is_directory;
+        info->write_date = v_info.write_date;
+        info->write_time = v_info.write_time;
+        return 0;
+    }
+    
     return -1;
 }
 
 static uint32_t bootfs_get_position(void *file_handle) {
     bootfs_handle_t *h = (bootfs_handle_t*)file_handle;
     if (!h) return 0;
+    if (h->disk_file) return vfs_file_position(h->disk_file);
     return h->offset;
 }
 
@@ -568,9 +632,9 @@ static uint32_t bootfs_get_size(void *file_handle) {
     bootfs_handle_t *h = (bootfs_handle_t*)file_handle;
     if (!h) return 0;
     
-    if (strcmp(h->path, "limine.conf") == 0) {
-        return g_bootfs_state.limine_conf_len;
-    } else if (strcmp(h->path, "kernel") == 0) {
+    if (h->disk_file) return vfs_file_size(h->disk_file);
+    
+    if (strcmp(h->path, "kernel") == 0) {
         return g_bootfs_state.kernel_size;
     } else if (strcmp(h->path, "initrd") == 0) {
         return g_bootfs_state.initrd_size;
@@ -633,32 +697,59 @@ void bootfs_mount_boot_partition(void) {
     }
 }
 
+static void find_boot_config(char *out_path) {
+    out_path[0] = '\0';
+    
+    // First try `/boot/efi` directory
+    vfs_dirent_t entries[32];
+    int count = vfs_list_directory("/boot/efi", entries, 32, 0);
+    for (int i = 0; i < count; i++) {
+        if (!entries[i].is_directory) {
+            int len = (int)strlen(entries[i].name);
+            if (len > 5 && (strcmp(entries[i].name + len - 5, ".conf") == 0 || strcmp(entries[i].name + len - 4, ".cfg") == 0)) {
+                strcpy(out_path, "/boot/efi/");
+                strcat(out_path, entries[i].name);
+                return;
+            }
+        }
+    }
+    
+    // If not found, try root `/`
+    count = vfs_list_directory("/", entries, 32, 0);
+    for (int i = 0; i < count; i++) {
+        if (!entries[i].is_directory) {
+            int len = (int)strlen(entries[i].name);
+            if (len > 5 && (strcmp(entries[i].name + len - 5, ".conf") == 0 || strcmp(entries[i].name + len - 4, ".cfg") == 0)) {
+                strcpy(out_path, "/");
+                strcat(out_path, entries[i].name);
+                return;
+            }
+        }
+    }
+}
+
 void bootfs_refresh_from_disk(void) {
     extern vfs_file_t* vfs_open(const char *path, const char *mode);
     extern int vfs_read(vfs_file_t *file, void *buf, int size);
     extern void vfs_close(vfs_file_t *file);
     
-    vfs_file_t *boot_conf = vfs_open("/boot/efi/limine.conf", "r");
-    if (boot_conf) {
-        strcpy(g_limine_conf_path, "/boot/efi/limine.conf");
-    } else {
-        boot_conf = vfs_open("/limine.conf", "r");
+    char path[128];
+    find_boot_config(path);
+    if (path[0] != '\0') {
+        strcpy(g_limine_conf_path, path);
+        vfs_file_t *boot_conf = vfs_open(path, "r");
         if (boot_conf) {
-            strcpy(g_limine_conf_path, "/limine.conf");
+            int bytes_read = vfs_read(boot_conf, g_bootfs_state.limine_conf, 2047);
+            if (bytes_read > 0) {
+                g_bootfs_state.limine_conf[bytes_read] = '\0';
+                g_bootfs_state.limine_conf_len = bytes_read;
+                serial_write("[BOOTFS] Loaded boot configuration from ");
+                serial_write(g_limine_conf_path);
+                serial_write("\n");
+            }
+            vfs_close(boot_conf);
         }
-    }
-
-    if (boot_conf) {
-        int bytes_read = vfs_read(boot_conf, g_bootfs_state.limine_conf, 2047);
-        if (bytes_read > 0) {
-            g_bootfs_state.limine_conf[bytes_read] = '\0';
-            g_bootfs_state.limine_conf_len = bytes_read;
-            serial_write("[BOOTFS] Loaded limine.conf from ");
-            serial_write(g_limine_conf_path);
-            serial_write("\n");
-        }
-        vfs_close(boot_conf);
     } else {
-        serial_write("[BOOTFS] Warning: limine.conf not found on disk\n");
+        serial_write("[BOOTFS] Warning: no boot config file (*.conf/*.cfg) found on disk\n");
     }
 }
