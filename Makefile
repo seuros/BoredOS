@@ -79,7 +79,7 @@ limine-setup:
 	@if [ ! -f limine/limine-bios.sys ]; then \
 		printf "$(YELLOW)[LIMINE] Limine binaries missing or invalid. Cloning v$(LIMINE_VERSION)-binary...$(RESET)\n"; \
 		rm -rf limine; \
-		git clone https://github.com/limine-bootloader/limine.git --branch=v$(LIMINE_VERSION)-binary --depth=1 limine; \
+		git clone https://github.com/limine-bootloader/limine.git --branch=v$(LIMINE_VERSION)-binary limine; \
 	else \
 		printf "$(YELLOW)[LIMINE] Existing Limine binaries found.$(RESET)\n"; \
 	fi
@@ -119,7 +119,9 @@ $(KERNEL_ELF): $(OBJ_FILES) $(BEARSSL_LIB)
 
 external-fetch:
 	$(call PRINT_STEP,FETCHING EXTERNAL REPOSITORIES)
-	@git submodule update --init --recursive
+	@if git submodule status | grep -q "^-"; then \
+		git submodule update --init --recursive; \
+	fi
 
 build/sdk: external-fetch
 	$(call PRINT_STEP,BUILDING BOREDOS SDK (LIBC))
@@ -142,7 +144,7 @@ userland: build/sdk
 	@printf "$(GREEN)[OK]$(RESET) Userland build complete.\n"
 
 .PHONY: packages
-packages: build/sdk $(BEARSSL_LIB)
+packages: build/sdk $(BEARSSL_LIB) userland
 	$(call PRINT_STEP,BUILDING BOREDOS PACKAGES)
 	@for pkg in $(PACKAGES); do \
 		printf "$(YELLOW)[PACKAGES]$(RESET) Building package $$pkg...\n"; \
