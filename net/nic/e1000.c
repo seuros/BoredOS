@@ -8,6 +8,7 @@
 #include "io.h"
 #include "platform.h"
 #include "kutils.h"
+#include "kconsole.h"
 
 static e1000_device_t e1000_dev;
 static int e1000_initialized = 0;
@@ -66,14 +67,7 @@ int e1000_init(pci_device_t* pci_dev) {
     mac_16[1] = (uint16_t)(ral >> 16);
     mac_16[2] = (uint16_t)(rah & 0xFFFF);
 
-    serial_write("[E1000] MAC: ");
-    for(int i=0; i<6; i++) {
-        char buf[4];
-        itoa_hex(e1000_dev.mac_address.bytes[i], buf);
-        serial_write(buf);
-        if(i<5) serial_write(":");
-    }
-    serial_write("\n");
+    serial_write_mac("[E1000] MAC: ", e1000_dev.mac_address.bytes);
 
     e1000_write_reg(mmio_base, E1000_REG_RAL, ral);
     e1000_write_reg(mmio_base, E1000_REG_RAH, rah | (1u << 31));

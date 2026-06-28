@@ -4,6 +4,7 @@
 #include "virtio_net.h"
 #include "io.h"
 #include "kutils.h"
+#include "kconsole.h"
 #include "platform.h"
 
 #define VIRTIO_PCI_HOST_FEATURES  0x00
@@ -142,14 +143,7 @@ int virtio_net_init(pci_device_t* pci_dev) {
         mac_addr[i] = inb(io_base + VIRTIO_PCI_CONFIG + i);
     }
 
-    serial_write("[VIRTIO-NET] MAC: ");
-    for(int i=0; i<6; i++) {
-        char buf[4];
-        itoa_hex(mac_addr[i], buf);
-        serial_write(buf);
-        if(i<5) serial_write(":");
-    }
-    serial_write("\n");
+    serial_write_mac("[VIRTIO-NET] MAC: ", mac_addr);
 
     outb(io_base + VIRTIO_PCI_STATUS, 1 | 2 | 4);
 

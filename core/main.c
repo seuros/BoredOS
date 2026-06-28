@@ -166,6 +166,17 @@ void serial_write_hex(uint64_t n) {
     spinlock_release_irqrestore(&serial_lock, flags);
 }
 
+void serial_write_mac(const char *label, const uint8_t *mac) {
+    serial_write(label);
+    for (int i = 0; i < 6; i++) {
+        char buf[4];
+        itoa_hex(mac[i], buf);
+        serial_write(buf);
+        if (i < 5) serial_write(":");
+    }
+    serial_write("\n");
+}
+
 void log_ok(const char *msg) {
     serial_write("[  ");
     kconsole_set_color(0xFF00FF00); 

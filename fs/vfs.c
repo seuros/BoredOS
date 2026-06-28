@@ -17,6 +17,8 @@ typedef framebuffer_info_t vfs_framebuffer_info_t;
 
 
 
+#define VFS_FILE_INVALID(f) (!(f) || !(f)->valid || !(f)->mount || !(f)->mount->active)
+
 static vfs_mount_t mounts[VFS_MAX_MOUNTS];
 static int mount_count = 0;
 static vfs_file_t open_files[VFS_MAX_OPEN_FILES];
@@ -551,7 +553,7 @@ void vfs_close(vfs_file_t *file) {
 }
 
 int vfs_read(vfs_file_t *file, void *buf, int size) {
-    if (!file || !file->valid || !file->mount || !file->mount->active) return -1;
+    if (VFS_FILE_INVALID(file)) return -1;
     
     if (file->is_device) {
         if (file->device_type == DEVICE_TYPE_BLOCK) {
@@ -644,7 +646,7 @@ int vfs_read(vfs_file_t *file, void *buf, int size) {
 }
 
 int vfs_write(vfs_file_t *file, const void *buf, int size) {
-    if (!file || !file->valid || !file->mount || !file->mount->active) return -1;
+    if (VFS_FILE_INVALID(file)) return -1;
 
     if (file->is_device) {
         if (file->device_type == DEVICE_TYPE_TTY) {
@@ -726,7 +728,7 @@ int vfs_write(vfs_file_t *file, const void *buf, int size) {
     return file->mount->ops->write(file->mount->fs_private, file->fs_handle, buf, size);
 }
 int vfs_ioctl(vfs_file_t *file, uint64_t request, void *arg) {
-    if (!file || !file->valid || !file->mount || !file->mount->active) return -1;
+    if (VFS_FILE_INVALID(file)) return -1;
     
     if (file->is_device) {
         if (file->device_type == DEVICE_TYPE_TTY) {
@@ -914,7 +916,7 @@ int vfs_ioctl(vfs_file_t *file, uint64_t request, void *arg) {
 }
 
 int vfs_seek(vfs_file_t *file, int offset, int whence) {
-    if (!file || !file->valid || !file->mount || !file->mount->active) return -1;
+    if (VFS_FILE_INVALID(file)) return -1;
     
     if (file->is_device) {
         if (file->device_type == DEVICE_TYPE_FRAMEBUFFER) {
