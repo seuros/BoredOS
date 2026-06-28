@@ -51,7 +51,8 @@ endif
 CFLAGS = -g -O2 -pipe -Wall -Wextra -std=gnu11 -ffreestanding \
          -fno-stack-protector -fno-stack-check -fno-lto -fPIE \
          -m64 -march=x86-64 -msse -msse2 -mstackrealign -mno-red-zone \
-         $(TOOLCHAIN_FLAGS) $(INCLUDES)
+         $(TOOLCHAIN_FLAGS) $(INCLUDES) \
+         -Icontrib/lwext4/include -Icontrib/lwext4/include/misc
 
 LDFLAGS = -m elf_x86_64 -nostdlib -static -pie --no-dynamic-linker \
           -z text -z max-page-size=0x1000 -T linker.ld
@@ -111,10 +112,35 @@ $(BEARSSL_LIB): build/sdk
 	$(MAKE) -C contrib/bearssl CC=$(CC) AR=$(AR) BOREDOS_SDK=$(abspath build/sdk)
 	@printf "$(GREEN)[OK]$(RESET) BearSSL built: $@\n"
 
-$(KERNEL_ELF): $(OBJ_FILES) $(BEARSSL_LIB)
+# --- lwext4 static library ---
+LWEXT4_SRC_DIR = contrib/lwext4/src
+LWEXT4_INC_DIR = contrib/lwext4/include
+LWEXT4_SRCS := $(wildcard $(LWEXT4_SRC_DIR)/*.c)
+LWEXT4_OBJS := $(patsubst $(LWEXT4_SRC_DIR)/%.c, $(BUILD_DIR)/lwext4/%.o, $(LWEXT4_SRCS))
+LWEXT4_LIB  = $(BUILD_DIR)/liblwext4.a
+
+LWEXT4_CFLAGS = -g -O2 -pipe -std=gnu11 -ffreestanding \
+                -fno-stack-protector -fno-stack-check -fno-lto -fPIE \
+                -m64 -march=x86-64 -msse -msse2 -mstackrealign -mno-red-zone \
+                -I$(LWEXT4_INC_DIR) -I$(LWEXT4_INC_DIR)/misc \
+                -include fs/ext4_config.h \
+                -Wno-unused-parameter -Wno-sign-compare -Wno-unused-variable \
+                $(INCLUDES)
+
+$(BUILD_DIR)/lwext4/%.o: $(LWEXT4_SRC_DIR)/%.c | $(BUILD_DIR)
+	@printf "$(YELLOW)[CC]$(RESET) $< -> $@\n"
+	@mkdir -p $(dir $@)
+	$(CC) $(LWEXT4_CFLAGS) -c $< -o $@
+
+$(LWEXT4_LIB): $(LWEXT4_OBJS)
+	$(call PRINT_STEP,BUILDING LWEXT4)
+	$(AR) rcs $@ $(LWEXT4_OBJS)
+	@printf "$(GREEN)[OK]$(RESET) lwext4 built: $@\n"
+
+$(KERNEL_ELF): $(OBJ_FILES) $(BEARSSL_LIB) $(LWEXT4_LIB)
 	$(call PRINT_STEP,LINKING KERNEL)
 	@printf "$(YELLOW)[LD]$(RESET) Linking kernel ELF: $@\n"
-	$(LD) $(LDFLAGS) -o $@ $(OBJ_FILES) $(BEARSSL_LIB)
+	$(LD) $(LDFLAGS) -o $@ $(OBJ_FILES) $(BEARSSL_LIB) $(LWEXT4_LIB)
 	@printf "$(GREEN)[OK]$(RESET) Kernel ELF built: $@\n"
 
 contrib-fetch:
