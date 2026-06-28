@@ -127,7 +127,7 @@ LWEXT4_CFLAGS = -g -O2 -pipe -std=gnu11 -ffreestanding \
                 -Wno-unused-parameter -Wno-sign-compare -Wno-unused-variable \
                 $(INCLUDES)
 
-$(BUILD_DIR)/lwext4/%.o: $(LWEXT4_SRC_DIR)/%.c | $(BUILD_DIR)
+$(BUILD_DIR)/lwext4/%.o: $(LWEXT4_SRC_DIR)/%.c fs/ext4_config.h fs/inttypes.h | $(BUILD_DIR)
 	@printf "$(YELLOW)[CC]$(RESET) $< -> $@\n"
 	@mkdir -p $(dir $@)
 	$(CC) $(LWEXT4_CFLAGS) -c $< -o $@
