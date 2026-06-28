@@ -295,3 +295,11 @@ uint32_t get_ticks(void) {
     extern volatile uint64_t kernel_ticks;
     return (uint32_t)kernel_ticks;
 }
+
+char *strcat(char *dest, const char *src) {
+    char *rdest = dest;
+    while (*dest) dest++;
+    while (*src) *dest++ = *src++;
+    *dest = 0;
+    return rdest;
+}
