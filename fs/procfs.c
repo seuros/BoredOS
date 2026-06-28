@@ -474,6 +474,21 @@ bool procfs_is_dir(void *fs_private, const char *path) {
     return false; 
 }
 
+static int procfs_seek(void *fs_private, void *handle, int offset, int whence) {
+    (void)fs_private;
+    procfs_handle_t *h = (procfs_handle_t*)handle;
+    if (!h) return -1;
+
+    if (whence == 0) { // SEEK_SET
+        h->offset = offset;
+    } else if (whence == 1) { // SEEK_CUR
+        h->offset += offset;
+    } else {
+        return -1;
+    }
+    return h->offset;
+}
+
 static int procfs_statfs(void *fs_private, vfs_statfs_t *stat) {
     (void)fs_private;
     stat->total_blocks = 0;
@@ -487,6 +502,7 @@ vfs_fs_ops_t procfs_ops = {
     .close = procfs_close,
     .read = procfs_read,
     .write = procfs_write,
+    .seek = procfs_seek,
     .readdir = procfs_readdir,
     .exists = procfs_exists,
     .is_dir = procfs_is_dir,

@@ -62,6 +62,21 @@ static int sysfs_write(void *fs_private, void *handle, const void *buf, int size
     return bytes;
 }
 
+static int sysfs_seek(void *fs_private, void *handle, int offset, int whence) {
+    (void)fs_private;
+    sysfs_handle_t *h = (sysfs_handle_t*)handle;
+    if (!h) return -1;
+
+    if (whence == 0) { // SEEK_SET
+        h->offset = offset;
+    } else if (whence == 1) { // SEEK_CUR
+        h->offset += offset;
+    } else {
+        return -1;
+    }
+    return h->offset;
+}
+
 static int sysfs_readdir(void *fs_private, const char *path, vfs_dirent_t *entries, int max, int offset) {
     if (path[0] == '/') path++;
     
@@ -207,6 +222,7 @@ vfs_fs_ops_t sysfs_ops = {
     .close = sysfs_close,
     .read = sysfs_read,
     .write = sysfs_write,
+    .seek = sysfs_seek,
     .readdir = sysfs_readdir,
     .exists = sysfs_exists,
     .is_dir = sysfs_is_dir,
