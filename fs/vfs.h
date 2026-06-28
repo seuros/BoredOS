@@ -80,6 +80,7 @@ typedef struct vfs_fs_ops {
 #define DEVICE_TYPE_PCSPKR      6
 #define DEVICE_TYPE_AUDIO       7
 #define DEVICE_TYPE_MIXER       8
+#define DEVICE_TYPE_RTC         9
 
 // VFS file handle
 struct vfs_file {

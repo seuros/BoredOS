@@ -441,6 +441,20 @@ vfs_file_t* vfs_open(const char *path, const char *mode) {
             }
         }
 
+        // Handle RTC device: /dev/rtc
+        if (strcmp(devname, "rtc") == 0) {
+            vfs_file_t *vf = vfs_alloc_file();
+            if (vf) {
+                vf->mount = &mounts[0];
+                vf->fs_handle = (void*)0;
+                vf->is_device = true;
+                vf->device_type = DEVICE_TYPE_RTC;
+                vf->position = 0;
+                spinlock_release_irqrestore(&vfs_lock, flags);
+                return vf;
+            }
+        }
+
         // Handle Shared Memory: /dev/shm/some_name
         if (vfs_starts_with(devname, "shm/")) {
             const char *shm_name = devname + 4;
@@ -615,6 +629,10 @@ int vfs_read(vfs_file_t *file, void *buf, int size) {
         else if (file->device_type == DEVICE_TYPE_AUDIO) {
             return ac97_read(file->fs_handle, buf, size);
         }
+        else if (file->device_type == DEVICE_TYPE_RTC) {
+            extern int rtc_dev_read(void *buf, int size, uint64_t *position);
+            return rtc_dev_read(buf, size, &file->position);
+        }
         return -1;
     }
 
@@ -694,6 +712,10 @@ int vfs_write(vfs_file_t *file, const void *buf, int size) {
         }
         else if (file->device_type == DEVICE_TYPE_AUDIO) {
             return ac97_write(file->fs_handle, buf, size);
+        }
+        else if (file->device_type == DEVICE_TYPE_RTC) {
+            extern int rtc_dev_write(const void *buf, int size, uint64_t *position);
+            return rtc_dev_write(buf, size, &file->position);
         }
         return -1;
     }
