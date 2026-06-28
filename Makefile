@@ -13,7 +13,7 @@ XORRISO = xorriso
 KERNEL_DIRS = arch core dev drivers fs graphics input mem net sys
 BUILD_DIR = build
 ISO_DIR = iso_root
-FONT_SRC := external/bfonts/fonts
+FONT_SRC := contrib/bfonts/fonts
 KERNEL_ELF = $(BUILD_DIR)/boredos.elf
 ISO_IMAGE = boredos.iso
 
@@ -104,11 +104,11 @@ $(BUILD_DIR)/%.o: %.asm | $(BUILD_DIR)
 	$(NASM) $(NASMFLAGS) $< -o $@
 
 
-BEARSSL_LIB = external/bearssl/libbearssl.a
+BEARSSL_LIB = contrib/bearssl/libbearssl.a
 
 $(BEARSSL_LIB): build/sdk
 	$(call PRINT_STEP,BUILDING BEARSSL)
-	$(MAKE) -C external/bearssl CC=$(CC) AR=$(AR) BOREDOS_SDK=$(abspath build/sdk)
+	$(MAKE) -C contrib/bearssl CC=$(CC) AR=$(AR) BOREDOS_SDK=$(abspath build/sdk)
 	@printf "$(GREEN)[OK]$(RESET) BearSSL built: $@\n"
 
 $(KERNEL_ELF): $(OBJ_FILES) $(BEARSSL_LIB)
@@ -117,30 +117,30 @@ $(KERNEL_ELF): $(OBJ_FILES) $(BEARSSL_LIB)
 	$(LD) $(LDFLAGS) -o $@ $(OBJ_FILES) $(BEARSSL_LIB)
 	@printf "$(GREEN)[OK]$(RESET) Kernel ELF built: $@\n"
 
-external-fetch:
+contrib-fetch:
 	$(call PRINT_STEP,FETCHING EXTERNAL REPOSITORIES)
 	@if git submodule status | grep -q "^-"; then \
 		git submodule update --init --recursive; \
 	fi
 
-build/sdk: external-fetch
+build/sdk: contrib-fetch
 	$(call PRINT_STEP,BUILDING BOREDOS SDK (LIBC))
 	@mkdir -p build/sdk
-	$(MAKE) -C external/libc SDK_DIR=$(abspath build/sdk) install
+	$(MAKE) -C contrib/libc SDK_DIR=$(abspath build/sdk) install
 
 userland: build/sdk
 	$(call PRINT_STEP,BUILDING USERERLAND APPLICATIONS)
 	@mkdir -p build/userland/bin
-	$(MAKE) -C external/bsh BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
-	$(MAKE) -C external/coreutils BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
-	$(MAKE) -C external/nova BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
-	$(MAKE) -C external/kilo BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
-	$(MAKE) -C external/boredos_install BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
-	$(MAKE) -C external/lua BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
-	$(MAKE) -C external/tcc BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
-	$(MAKE) -C external/netutils BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
-	$(MAKE) -C external/doomgeneric BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
-	$(MAKE) -C external/bpm BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
+	$(MAKE) -C contrib/bsh BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
+	$(MAKE) -C contrib/coreutils BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
+	$(MAKE) -C contrib/nova BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
+	$(MAKE) -C contrib/kilo BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
+	$(MAKE) -C contrib/boredos_install BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
+	$(MAKE) -C contrib/lua BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
+	$(MAKE) -C contrib/tcc BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
+	$(MAKE) -C contrib/netutils BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
+	$(MAKE) -C contrib/doomgeneric BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
+	$(MAKE) -C contrib/bpm BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath build/userland/bin)
 	@printf "$(GREEN)[OK]$(RESET) Userland build complete.\n"
 
 .PHONY: packages
@@ -148,7 +148,7 @@ packages: build/sdk $(BEARSSL_LIB) userland
 	$(call PRINT_STEP,BUILDING BOREDOS PACKAGES)
 	@for pkg in $(PACKAGES); do \
 		printf "$(YELLOW)[PACKAGES]$(RESET) Building package $$pkg...\n"; \
-		$(MAKE) -C external/$$pkg BOREDOS_SDK=$(abspath build/sdk) bup || exit 1; \
+		$(MAKE) -C contrib/$$pkg BOREDOS_SDK=$(abspath build/sdk) bup || exit 1; \
 	done
 
 $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF) userland packages
@@ -168,18 +168,18 @@ $(BUILD_DIR)/initrd.tar: $(KERNEL_ELF) userland packages
 	@cp $(KERNEL_ELF) $(BUILD_DIR)/initrd/boot/boredos.elf
 
 	@printf "$(YELLOW)[STAGE]$(RESET) Invoking modular repository installations...\n"
-	$(MAKE) -C external/bsh BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
-	$(MAKE) -C external/coreutils BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
-	$(MAKE) -C external/boredos_install BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
-	$(MAKE) -C external/bpm BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
+	$(MAKE) -C contrib/bsh BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
+	$(MAKE) -C contrib/coreutils BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
+	$(MAKE) -C contrib/boredos_install BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
+	$(MAKE) -C contrib/bpm BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install
 	@for pkg in $(PACKAGES); do \
-		$(MAKE) -C external/$$pkg BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install || exit 1; \
+		$(MAKE) -C contrib/$$pkg BOREDOS_SDK=$(abspath build/sdk) DESTDIR=$(abspath $(BUILD_DIR)/initrd) install || exit 1; \
 	done
 
 	@printf "$(YELLOW)[STAGE]$(RESET) Staging package .bup files on Live CD...\n"
 	@mkdir -p $(BUILD_DIR)/initrd/usr/share/packages
 	@for pkg in $(PACKAGES); do \
-		cp external/$$pkg/build/$$pkg.bup $(BUILD_DIR)/initrd/usr/share/packages/ || exit 1; \
+		cp contrib/$$pkg/build/$$pkg.bup $(BUILD_DIR)/initrd/usr/share/packages/ || exit 1; \
 	done
 	@printf "$(YELLOW)[PACKAGES]$(RESET) Generating exclusions list...\n"
 	@bash tools/gen_excludes.sh $(abspath $(BUILD_DIR)/initrd)
@@ -267,7 +267,7 @@ $(ISO_IMAGE): $(KERNEL_ELF) $(BUILD_DIR)/initrd.tar.lz4 limine.conf limine-setup
 clean:
 	$(call PRINT_STEP,CLEANING BUILD OUTPUT)
 	rm -rf $(BUILD_DIR) $(ISO_DIR) $(ISO_IMAGE)
-	@for dir in external/*; do \
+	@for dir in contrib/*; do \
 		if [ -d "$$dir" ] && [ -f "$$dir/Makefile" ]; then \
 			$(MAKE) -C "$$dir" clean; \
 		fi \
