@@ -1,173 +1,96 @@
-# Syscall Reference
+# BoredOS System Call Reference
 
-This page documents the current syscall surface in BoredOS as implemented in:
-- `src/sys/syscall.h` (kernel command IDs)
-- `external/libc/include/syscall.h` (userland wrappers)
+BoredOS implements a standard, flat system call interface. It provides a direct POSIX-compatible subset (numbers 0 to 202) alongside specialized custom system calls (numbers 300+) to support filesystems, virtual terminals, pseudo-terminals, disks, and system actions.
 
-Use libc wrappers when possible instead of calling raw syscall numbers directly.
+> [!NOTE]
+> The historical multiplexed system calls (`SYS_FS = 4` and `SYS_SYSTEM = 5`) and command sub-IDs have been completely removed. Standard filesystem, device control, and system state operations are now routed directly through standard syscalls or mapped cleanly inside the Virtual File System (VFS).
 
-## Top-Level Syscall Numbers
+---
 
-| Number | Name | Purpose |
-|---|---|---|
-| 0 | `SYS_EXIT` (userland header) | Terminate current process |
-| 1 | `SYS_WRITE` | Write to stdout/tty path |
-| 3 | `SYS_GUI` | Defunct (previously Window Manager) |
-| 4 | `SYS_FS` | Filesystem and fd commands |
-| 5 | `SYS_SYSTEM` | System-wide command multiplexer |
-| 8 | `SYS_DEBUG_SERIAL` | Debug serial output (kernel only) |
-| 9 | `SYS_SBRK` (userland header) | Heap break management |
-| 10 | `SYS_KILL` (userland header) | Kill process by PID |
-| 60 | `SYS_EXIT` (kernel header) | Internal kernel syscall number map |
+## 1. Direct POSIX-Compatible System Calls (0 - 299)
 
-Notes:
-- Some numbers differ between kernel and userland headers for historical reasons. For app code, rely on wrapper functions in `external/libc/src/syscall.c`.
-- `SYS_FS` and `SYS_SYSTEM` are command multiplexers.
+These system calls conform to standard Linux x86_64 ABI layouts, allowing standard C libraries and applications to run with minimal porting:
 
-## FS Command IDs (`SYS_FS`)
+| Number | Symbol / Enum | Arguments | Description |
+| :--- | :--- | :--- | :--- |
+| **0** | `SYS_READ` | `int fd, void *buf, size_t count` | Reads bytes from file descriptor `fd` into `buf`. |
+| **1** | `SYS_WRITE` | `int fd, const void *buf, size_t count` | Writes bytes from `buf` to file descriptor `fd`. |
+| **2** | `SYS_OPEN` | `const char *path, const char *mode` | Opens file/device at `path` using standard C mode string. |
+| **3** | `SYS_CLOSE` | `int fd` | Closes file descriptor `fd` and frees resources. |
+| **4** | `SYS_STAT` | `const char *path, FAT32_FileInfo *info` | Retrieves metadata of target filesystem node. |
+| **7** | `SYS_POLL` | `struct pollfd *fds, nfds_t nfds, int timeout` | Monitors multiple file descriptors for readability/writeability. |
+| **8** | `SYS_LSEEK` | `int fd, off_t offset, int whence` | Moves read/write offset pointer of `fd`. |
+| **9** | `SYS_MMAP` | `void *addr, size_t len, int prot, int flags, int fd, off_t offset` | Maps memory pages (used primarily for heap allocation). |
+| **11** | `SYS_MUNMAP` | `void *addr, size_t len` | Unmaps memory pages allocated via `mmap`. |
+| **12** | `SYS_BRK` | `void *addr` | Changes process data segment limit. |
+| **13** | `SYS_RT_SIGACTION` | `int sig, const struct sigaction *act, struct sigaction *oact` | Gets/sets actions for process signals. |
+| **14** | `SYS_RT_SIGPROCMASK` | `int how, const sigset_t *set, sigset_t *oset` | Manages process signal masks. |
+| **16** | `SYS_IOCTL` | `int fd, unsigned long request, void *argp` | Performs driver/device-specific operations. |
+| **22** | `SYS_PIPE` | `int pipefd[2]` | Allocates a pair of unified read/write pipes. |
+| **24** | `SYS_SCHED_YIELD` | *none* | Yields the active CPU core to the next process. |
+| **32** | `SYS_DUP` | `int oldfd` | Duplicates file descriptor `oldfd`. |
+| **33** | `SYS_DUP2` | `int oldfd, int newfd` | Duplicates file descriptor `oldfd` onto `newfd`. |
+| **35** | `SYS_NANOSLEEP` | `uint32_t milliseconds` | Suspends execution of current process. |
+| **39** | `SYS_GETPID` | *none* | Returns the process identifier. |
+| **41** | `SYS_SOCKET` | `int domain, int type, int protocol` | Creates a communication endpoint (TCP/UDP/Unix). |
+| **42** | `SYS_CONNECT` | `int fd, const struct sockaddr *addr, socklen_t len` | Establishes socket connection. |
+| **43** | `SYS_ACCEPT` | `int fd, struct sockaddr *addr, socklen_t *len` | Accepts incoming socket connection. |
+| **44** | `SYS_SENDTO` | `int fd, const void *buf, size_t len, int flags, ...` | Transmits packet data over a socket. |
+| **45** | `SYS_RECVFROM` | `int fd, void *buf, size_t len, int flags, ...` | Receives packet data from a socket. |
+| **49** | `SYS_BIND` | `int fd, const struct sockaddr *addr, socklen_t len` | Binds a socket to a local port/address. |
+| **50** | `SYS_LISTEN` | `int fd, int backlog` | Prepares a socket to accept connections. |
+| **57** | `SYS_FORK` | *none* | Clones the current process. |
+| **59** | `SYS_EXECVE` | `const char *pathname, char *const argv[], char *const envp[]` | Replaces active process memory image with an ELF. |
+| **60** | `SYS_EXIT` | `int status` | Terminates process execution. |
+| **61** | `SYS_WAIT4` | `pid_t pid, int *wstatus, int options, void *rusage` | Waits for a child process to terminate. |
+| **62** | `SYS_KILL` | `pid_t pid, int sig` | Sends a signal to target PID. |
+| **72** | `SYS_FCNTL` | `int fd, int cmd, int val` | Manages file descriptor flags (e.g., `O_NONBLOCK`). |
+| **73** | `SYS_RT_SIGPENDING` | `sigset_t *set` | Returns signals currently pending delivery. |
+| **79** | `SYS_GETCWD` | `char *buf, size_t size` | Gets current working directory path string. |
+| **80** | `SYS_CHDIR` | `const char *path` | Changes current working directory. |
+| **83** | `SYS_MKDIR` | `const char *path` | Creates a VFS directory. |
+| **87** | `SYS_UNLINK` | `const char *path` | Deletes a file/node from VFS. |
+| **158** | `SYS_ARCH_PRCTL` | `int code, unsigned long addr` | Sets architecture parameters (e.g. `ARCH_SET_FS` for thread-local storage). |
+| **202** | `SYS_FUTEX` | `uint32_t *uaddr, int op, uint32_t val` | Fast userspace locking mechanism (`FUTEX_WAIT`, `FUTEX_WAKE`). |
 
-| ID | Macro | Meaning |
-|---|---|---|
-| 1 | `FS_CMD_OPEN` | Open file |
-| 2 | `FS_CMD_READ` | Read from fd |
-| 3 | `FS_CMD_WRITE` | Write to fd |
-| 4 | `FS_CMD_CLOSE` | Close fd |
-| 5 | `FS_CMD_SEEK` | Seek in file |
-| 6 | `FS_CMD_TELL` | Current offset |
-| 7 | `FS_CMD_LIST` | Directory listing |
-| 8 | `FS_CMD_DELETE` | Delete file |
-| 9 | `FS_CMD_SIZE` | File size |
-| 10 | `FS_CMD_MKDIR` | Create directory |
-| 11 | `FS_CMD_EXISTS` | Path exists check |
-| 12 | `FS_CMD_GETCWD` | Get cwd |
-| 13 | `FS_CMD_CHDIR` | Change cwd |
-| 14 | `FS_CMD_GET_INFO` | File metadata |
-| 15 | `FS_CMD_DUP` | `dup` fd |
-| 16 | `FS_CMD_DUP2` | `dup2` fd |
-| 17 | `FS_CMD_PIPE` | Create pipe |
-| 18 | `FS_CMD_FCNTL` | `fcntl` flags ops |
-| 19 | `FS_CMD_STATFS` | Get filesystem statistics |
-| 20 | `FS_CMD_MOUNT_COUNT` | Get number of active mounts |
-| 21 | `FS_CMD_MOUNT_INFO` | Get mount metadata |
-| 22 | `FS_CMD_POLL` | Wait for events on multiple fds |
-| 23 | `FS_CMD_SELECT` | Multiplexed I/O (stub/alias) |
+---
 
-## SYSTEM Command IDs (`SYS_SYSTEM`)
+## 2. Custom BoredOS System Calls (300+)
 
-### Desktop and display
+Specialized direct calls for disk partition control, virtual terminals, and quick VFS operations:
 
-| ID | Macro | Meaning |
-|---|---|---|
-| 29 | `SYSTEM_CMD_SET_TEXT_COLOR` | Set console text color |
-| 49 | `SYSTEM_CMD_SET_KEYBOARD_LAYOUT` | Set active keyboard layout ID |
-| 51 | `SYSTEM_CMD_GET_KEYBOARD_LAYOUT` | Get current keyboard layout ID |
+| Number | Symbol / Enum | Arguments | Description |
+| :--- | :--- | :--- | :--- |
+| **300** | `SYS_LIST_OFFSET` | `const char *path, FAT32_FileInfo *entries, int max, int offset` | Lists directory contents. |
+| **301** | `SYS_SIZE` | `int fd` | Returns the total size of file descriptor `fd`. |
+| **302** | `SYS_TELL` | `int fd` | Returns the current seek position of file descriptor `fd`. |
+| **303** | `SYS_EXISTS` | `const char *path` | Checks if `path` exists in the VFS. |
+| **304** | `SYS_FS_STATFS` | `const char *path, vfs_statfs_t *stat` | Reads filesystem capacity data. |
+| **305** | `SYS_FS_MOUNT_COUNT` | *none* | Returns the count of mounted filesystems. |
+| **306** | `SYS_FS_MOUNT_INFO` | `int index, mount_info_t *info` | Gets details for mount at `index`. |
+| **307** | `SYS_TTY_CREATE` | `uint32_t flags` | Allocates a virtual terminal console (TTY). |
+| **308** | `SYS_TTY_READ_OUT` | `int tty_id, char *buf, size_t count` | Debug helper: reads characters printed to TTY screen. |
+| **309** | `SYS_TTY_WRITE_IN` | `int tty_id, const char *buf, size_t count` | Debug helper: injects input keys into TTY buffer. |
+| **310** | `SYS_TTY_READ_IN` | `int tty_id, char *buf, size_t count` | Reads raw keystrokes from target TTY. |
+| **311** | `SYS_TTY_DESTROY` | `int tty_id` | Deallocates a virtual TTY. |
+| **312** | `SYS_TTY_SET_FG` | `int tty_id, pid_t pid` | Sets the foreground process of a virtual TTY. |
+| **313** | `SYS_TTY_GET_FG` | `int tty_id` | Gets active foreground process PID on a TTY. |
+| **314** | `SYS_TTY_KILL_FG` | `int tty_id` | Forcefully terminates foreground process on TTY. |
+| **315** | `SYS_TTY_KILL_ALL` | `int tty_id` | Terminates all processes attached to a TTY. |
+| **316** | `SYS_TTY_GET_ID` | *none* | Gets current TTY ID for calling process. |
+| **317** | `SYS_SPAWN` | `const char *path, char *const argv[], char *const envp[], uint32_t flags` | Spawns a process. |
+| **320** | `SYS_PTY_CREATE` | `int *fds` | Spawns master/slave pseudo-terminal pair. |
+| **321** | `SYS_PTY_DESTROY` | `int pty_id` | Destroys PTY pair. |
+| **322** | `SYS_DISK_GET_COUNT` | *none* | Returns the count of recognized physical disks. |
+| **323** | `SYS_DISK_GET_INFO` | `int index, disk_info_t *out` | Gets drive model, size, and partition tables. |
+| **324** | `SYS_DISK_WRITE_GPT` | `const char *devname, partition_spec_t *parts, int count` | Writes GPT table to target block device. |
+| **325** | `SYS_DISK_WRITE_MBR` | `const char *devname, partition_spec_t *parts, int count` | Writes MBR partition layout. |
+| **326** | `SYS_DISK_MKFS_FAT32` | `const char *devname, const char *label` | Formats a block volume with a FAT32 filesystem. |
+| **327** | `SYS_DISK_MOUNT` | `const char *devname, const char *mountpoint` | Mounts a device to a VFS target location. |
+| **328** | `SYS_DISK_UMOUNT` | `const char *mountpoint` | Unmounts a filesystem from VFS. |
+| **329** | `SYS_DISK_SYNC` | `const char *mountpoint` | Commits write cache blocks back to storage. |
+| **330** | `SYS_DISK_RESCAN` | `const char *devname` | Reloads device partition mappings. |
+| **349** | `SYS_REBOOT` | *none* | Triggers system warm reboot. |
+| **350** | `SYS_SHUTDOWN` | *none* | Powers off the machine using ACPI. |
 
-### Time, power, and system state
-
-| ID | Macro | Meaning |
-|---|---|---|
-| 11 | `SYSTEM_CMD_RTC_GET` | Read RTC datetime |
-| 12 | `SYSTEM_CMD_REBOOT` | Reboot machine |
-| 13 | `SYSTEM_CMD_SHUTDOWN` | Power off machine |
-| 15 | `SYSTEM_CMD_GET_MEM_INFO` | Return total/used memory |
-| 16 | `SYSTEM_CMD_GET_TICKS` | Return scheduler tick count |
-| 32 | `SYSTEM_CMD_RTC_SET` | Set RTC datetime |
-| 41 | `SYSTEM_CMD_SET_RAW_MODE` | Terminal raw-mode control |
-| 43 | `SYSTEM_CMD_YIELD` | Yield scheduler timeslice |
-| 46 | `SYSTEM_CMD_SLEEP` | Sleep current process |
-
-
-
-### Process, tty, signals
-
-| ID | Macro | Meaning |
-|---|---|---|
-| 50 | `SYSTEM_CMD_PARALLEL_RUN` | Dispatch parallel job |
-| 60 | `SYSTEM_CMD_TTY_CREATE` | Create tty |
-| 61 | `SYSTEM_CMD_TTY_READ_OUT` | Read tty output buffer |
-| 62 | `SYSTEM_CMD_TTY_WRITE_IN` | Write tty input buffer |
-| 63 | `SYSTEM_CMD_TTY_READ_IN` | Read input for current tty |
-| 64 | `SYSTEM_CMD_SPAWN` | Spawn process |
-| 65 | `SYSTEM_CMD_TTY_SET_FG` | Set tty foreground PID |
-| 66 | `SYSTEM_CMD_TTY_GET_FG` | Get tty foreground PID |
-| 67 | `SYSTEM_CMD_TTY_KILL_FG` | Kill tty foreground PID |
-| 68 | `SYSTEM_CMD_TTY_KILL_ALL` | Kill tty process group |
-| 69 | `SYSTEM_CMD_TTY_DESTROY` | Destroy tty |
-| 70 | `SYSTEM_CMD_EXEC` | Exec replace current process |
-| 71 | `SYSTEM_CMD_WAITPID` | Wait/reap child |
-| 72 | `SYSTEM_CMD_KILL_SIGNAL` | Send signal |
-| 73 | `SYSTEM_CMD_SIGACTION` | Set/get handler |
-| 74 | `SYSTEM_CMD_SIGPROCMASK` | Signal mask ops |
-| 75 | `SYSTEM_CMD_SIGPENDING` | Get pending signals |
-
-### ELF app metadata
-
-| ID | Macro | Meaning |
-|---|---|---|
-| 76 | `SYSTEM_CMD_GET_ELF_METADATA` | Read full app metadata from an ELF |
-| 77 | `SYSTEM_CMD_GET_ELF_PRIMARY_IMAGE` | Read primary icon path from an ELF |
-
-### Disk Management
-
-| ID | Macro | Meaning |
-|---|---|---|
-| 100 | `SYSTEM_CMD_DISK_GET_COUNT` | Get number of detected disks |
-| 101 | `SYSTEM_CMD_DISK_GET_INFO` | Get metadata for a specific disk/partition |
-| 102 | `SYSTEM_CMD_DISK_WRITE_GPT` | Write GPT partition table to disk |
-| 103 | `SYSTEM_CMD_DISK_WRITE_MBR` | Write MBR partition table to disk |
-| 104 | `SYSTEM_CMD_DISK_MKFS_FAT32` | Format a partition as FAT32 |
-| 105 | `SYSTEM_CMD_DISK_MOUNT` | Mount a filesystem |
-| 106 | `SYSTEM_CMD_DISK_UMOUNT` | Unmount a filesystem |
-| 107 | `SYSTEM_CMD_DISK_RESCAN` | Rescan disk for partition changes |
-| 108 | `SYSTEM_CMD_DISK_REPLACE_KERNEL` | Copy new kernel to ESP / boot partition |
-| 109 | `SYSTEM_CMD_DISK_SYNC` | Flush disk caches for a mountpoint |
-
-## Event-Driven I/O: `sys_poll`
-
-BoredOS supports efficient event-driven I/O via the `sys_poll` syscall. This mechanism allows a process to sleep until one or more file descriptors become "ready" (e.g., data is available to read), rather than spinning in a busy-loop.
-
-### Usage
-
-```c
-#include <syscall.h>
-
-struct pollfd fds[1];
-fds[0].fd = 0;          // stdin / tty
-fds[0].events = POLLIN; // Wait for data to read
-
-// Wait up to 1000ms. Use -1 for infinite wait.
-int ready = sys_poll(fds, 1, 1000);
-
-if (ready > 0) {
-    if (fds[0].revents & POLLIN) {
-        // Data is ready to be read from fd 0
-    }
-} else if (ready == 0) {
-    // Timeout reached
-}
-```
-
-### Wait Queues
-
-Unlike simpler systems that use periodic polling, BoredOS uses a **Wait Queue** infrastructure:
-
-1. **Registration**: When `sys_poll` is called, the kernel registers the calling process with the wait queues of all requested file descriptors (e.g., the TTY input queue or a Pipe's read queue).
-2. **Blocking**: If no events are immediately available, the kernel sets the process state to `PROC_STATE_BLOCKED` and returns a special status code `-2` to the syscall layer.
-3. **Waking**: When a hardware interrupt (like a key press) or another process (writing to a pipe) adds data, the resource calls `wait_queue_wake_all()`. This sets all registered processes back to `PROC_STATE_RUNNING`.
-4. **Resumption**: The libc wrapper for `sys_poll` detects the `-2` return code and automatically re-invokes the syscall until a final result is ready.
-
-This ensures that idle applications consume **zero CPU cycles** while waiting for input.
-
-## Common Wrapper API (`external/libc/include/syscall.h`)
-
-Typical wrappers used by apps:
-- Process/system: `sys_exit`, `sys_yield`, `sys_system` (with `SYSTEM_CMD_SLEEP`), `sys_spawn`, `sys_exec`, `sys_waitpid`
-- Filesystem: `sys_open`, `sys_read`, `sys_write_fs`, `sys_close`, `sys_seek`, `sys_tell`, `sys_size`, `sys_list`, `sys_poll`
-- Network: `sys_network_init`, `sys_network_dhcp_acquire`, `sys_udp_send`, `sys_tcp_connect`, `sys_tcp_recv_nb`, `sys_dns_lookup`
-- TTY: `sys_tty_create`, `sys_tty_read_out`, `sys_tty_write_in`, `sys_tty_set_fg`
-
-## Best Practices
-
-- Do not hardcode numeric command IDs in app code.
-- Prefer high-level libc calls (`open`, `read`, `waitpid`, `sigaction`) where available.
-- Use `syscall.h` macros when a raw `sys_system` call is still needed.
+---

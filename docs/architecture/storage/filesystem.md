@@ -1,37 +1,36 @@
 <div align="center">
-  <h1>Filesystem Architecture</h1>
-  <p><em>Virtual File System layer and FAT32 abstraction in BoredOS.</em></p>
+  <h1>Filesystem & Storage Architecture</h1>
+  <p><em>Virtual File System layer, partition schemes, and FAT32 management in BoredOS.</em></p>
 </div>
 
 ---
 
-BoredOS implements a rudimentary but functional filesystem layer designed to support reading system assets and user applications during runtime.
+BoredOS implements a Virtual Filesystem (VFS) layer to support system binaries, initial RAM disks, user scripts, and physical drive volumes.
 
-## Virtual File System (VFS)
+## 1. Virtual File System (VFS)
 
-The Virtual File System acts as an abstraction layer across different underlying storage mechanisms (even if, currently, only one type is fully utilized). System calls targeting files (`SYS_FS`) route through the VFS rather than interacting with the disk directly.
+The Virtual File System abstractly routes standard POSIX path targets to distinct filesystems mounted across the directory tree.
 
 Key VFS functionalities include:
--   **File Descriptors**: Mapping integer IDs to internal file structures for userland processes.
--   **Standard Operations**: Standardizing `open()`, `read()`, `write()`, `close()`, `seek()`, and directory listings.
--   **Path Parsing**: Resolving absolute and relative paths.
--   **SMP Safety**: All VFS and underlying FAT32 operations are protected by a global **Spinlock**. This ensures that multiple cores can safely read from the filesystem simultaneously without corrupting internal file seek pointers or directory cache states.
+-   **File Descriptors**: Mapping process-local integers to open file structures.
+-   **Standard Operations**: Routing `open()`, `read()`, `write()`, `close()`, `seek()`, `poll()`, and directory listings (`vfs_list_directory`) to backing mount drivers.
+-   **Path Resolution**: Normalizing relative paths and resolving symbolic linkages.
+-   **SMP Safety**: Locking modifications and I/O tasks via spinlocks to avoid context corruption across multiple cores.
 
-## FAT32 Implementation
+---
 
-The primary filesystem logic in `fat32.c` handles both in-memory RAM-based filesystem simulation and physical ATA block devices.
+## 2. Mounting and Partition Layouts
 
-### Storage Support
+BoredOS automatically scans and registers disks and partitions during device initialization:
 
-BoredOS supports two main types of storage for its FAT32 implementation:
+### Partitions
+The `Disk Manager` supports both legacy **MBR (Master Boot Record)** partition schemes and modern **GPT (GUID Partition Table)** schemes.
+-   Partition metadata and block boundaries are scanned automatically.
+-   Partitions are mounted within `/dev` as block nodes (e.g. `/dev/sda1`, `/dev/sda2`).
+-   The default filesystem format is **FAT32**.
 
-1.  **RAMFS (Boot Modules)**: During boot, Limine loads necessary files (such as userland `.elf` binaries, fonts, and wallpapers) into memory as standard boot modules. The FAT32 code parses these loaded memory modules and automatically constructs a synthetic FAT32 directory tree inside RAM (mounted as `A:`).
-2.  **ATA Drives**: The kernel includes a basic PIO-based ATA driver that can detect and read/write to physical IDE/PATA hard disks.
-    -   **GPT is NOT supported**: Currently, only **MBR (Master Boot Record)** partition tables or **raw (partitionless)** disks are supported.
-    -   **Filesystem**: The partition must be formatted as **FAT32**.
-
-### Auto-detection
-The `Disk Manager` automatically probes primary and secondary IDE channels during initialization. If a valid FAT32 partition is found (either directly at sector 0 or via an MBR partition table), the disk is assigned a drive letter (starting from `B:`) and becomes accessible to the VFS.
-
+### Backing Controllers
+-   **AHCI SATA DMA**: Probes and reads/writes to SATA drives with high-throughput DMA transfers.
+-   **Legacy IDE PIO**: Fallback controller driver for older emulator setups.
 
 ---

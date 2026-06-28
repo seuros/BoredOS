@@ -1,45 +1,60 @@
 [submodule "external/libc"]
 	path = external/libc
 	url = https://github.com/boredos/libc.git
+	ignore = all
 [submodule "external/bsh"]
 	path = external/bsh
 	url = https://github.com/boredos/bsh.git
+	ignore = all
 [submodule "external/nova"]
 	path = external/nova
 	url = https://github.com/boredos/nova.git
+	ignore = all
 [submodule "external/coreutils"]
 	path = external/coreutils
 	url = https://github.com/boredos/coreutils.git
+	ignore = all
 [submodule "external/kilo"]
 	path = external/kilo
 	url = https://github.com/boredos/kilo.git
+	ignore = all
 [submodule "external/boredos_install"]
 	path = external/boredos_install
 	url = https://github.com/boredos/boredos_install.git
+	ignore = all
 [submodule "external/lua"]
 	path = external/lua
 	url = https://github.com/boredos/lua.git
+	ignore = all
 [submodule "external/tcc"]
 	path = external/tcc
 	url = https://github.com/boredos/tcc.git
+	ignore = all
 [submodule "external/netutils"]
 	path = external/netutils
 	url = https://github.com/boredos/netutils.git
+	ignore = all
 [submodule "external/bart"]
 	path = external/bart
 	url = https://github.com/boredos/bart.git
+	ignore = all
 [submodule "external/serenityicons"]
 	path = external/serenityicons
 	url = https://github.com/BoredOS/serenity-icons.git
+	ignore = all
 [submodule "external/bfonts"]
 	path = external/bfonts
 	url = https://github.com/boredos/bfonts.git
+	ignore = all
 [submodule "external/doomgeneric"]
 	path = external/doomgeneric
 	url = https://github.com/boredos/doomgeneric.git
+	ignore = all
 [submodule "external/bearssl"]
 	path = external/bearssl
 	url = https://github.com/boredos/bearssl.git
+	ignore = all
 [submodule "external/bpm"]
 	path = external/bpm
 	url = https://github.com/boredos/bpm.git
+	ignore = all
