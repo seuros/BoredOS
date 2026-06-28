@@ -72,7 +72,7 @@ typedef struct {
 static semaphore_t mixer_sem;
 
 static inline void sched_yield(void) {
-    asm volatile("int $128" : : "a"(5), "D"(43) : "rcx", "r11", "memory");
+    asm volatile("int $128" : : "a"(24) : "rcx", "r11", "memory");
 }
 
 static void sem_init(semaphore_t *sem, int initial_count) {
