@@ -6,6 +6,7 @@ export MAKEFLAGS += -j4
 
 CC = x86_64-elf-gcc
 LD = x86_64-elf-ld
+AR = x86_64-elf-ar
 NASM = nasm
 XORRISO = xorriso
 
