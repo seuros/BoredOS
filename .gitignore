@@ -21,6 +21,3 @@ boredos.dump
 
 # Others
 .gitignore
-
-# External Repositories
-/external/

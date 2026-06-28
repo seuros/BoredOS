@@ -89,16 +89,12 @@ clean:
 	rm -rf obj $(BINARY) build
 ```
 
-### Step 3: Register in the Dependency Fetcher
+### Step 3: Register as a Git Submodule
 To integrate your repository into the standard BoredOS distribution build:
 1. Publish your new repository on GitHub **under your own personal user account** (e.g., `https://github.com/<your-github-username>/calc.git`).
-2. Open a **Pull Request (PR)** on the parent BoredOS repository to register your repository in [tools/fetch_external.sh](file:///Users/chris/BoredOS/tools/fetch_external.sh):
+2. Open a **Pull Request (PR)** on the parent BoredOS repository to add your repository as a submodule:
    ```sh
-   # Format: repo_name | git_url | commit_hash_or_branch
-   REPOS="
-   ...
-   calc|https://github.com/<your-github-username>/calc.git|main
-   "
+   git submodule add https://github.com/<your-github-username>/calc.git external/calc
    ```
 
 ### Step 4: Configure the Root Makefile Integration
