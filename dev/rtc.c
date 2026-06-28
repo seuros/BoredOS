@@ -3,6 +3,9 @@
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include "rtc.h"
 #include "io.h"
+#include "kutils.h"
+#include <string.h>
+#include <stddef.h>
 
 #define CMOS_ADDRESS 0x70
 #define CMOS_DATA    0x71
@@ -110,4 +113,72 @@ void rtc_set_datetime(int year, int month, int day, int hour, int minute, int se
     // Re-enable updates
     outb(CMOS_ADDRESS, 0x8B);
     outb(CMOS_DATA, prev_b & ~0x80);
+}
+
+int rtc_dev_read(void *buf, int size, uint64_t *position) {
+    int y, m, d, h, min, s;
+    rtc_get_datetime(&y, &m, &d, &h, &min, &s);
+    
+    char out[64];
+    char temp[16];
+    out[0] = 0;
+    
+    itoa(y, temp);
+    strcpy(out, temp);
+    strcpy(out + strlen(out), "-");
+    
+    itoa(m, temp);
+    if (m < 10) strcpy(out + strlen(out), "0");
+    strcpy(out + strlen(out), temp);
+    strcpy(out + strlen(out), "-");
+    
+    itoa(d, temp);
+    if (d < 10) strcpy(out + strlen(out), "0");
+    strcpy(out + strlen(out), temp);
+    strcpy(out + strlen(out), " ");
+    
+    itoa(h, temp);
+    if (h < 10) strcpy(out + strlen(out), "0");
+    strcpy(out + strlen(out), temp);
+    strcpy(out + strlen(out), ":");
+    
+    itoa(min, temp);
+    if (min < 10) strcpy(out + strlen(out), "0");
+    strcpy(out + strlen(out), temp);
+    strcpy(out + strlen(out), ":");
+    
+    itoa(s, temp);
+    if (s < 10) strcpy(out + strlen(out), "0");
+    strcpy(out + strlen(out), temp);
+    strcpy(out + strlen(out), "\n");
+    
+    int len = (int)strlen(out);
+    if (*position >= (uint64_t)len) return 0;
+    int to_copy = len - (int)*position;
+    if (to_copy > size) to_copy = size;
+    memcpy(buf, out + *position, to_copy);
+    *position += to_copy;
+    return to_copy;
+}
+
+int rtc_dev_write(const void *buf, int size, uint64_t *position) {
+    (void)position;
+    if (size < 19) return -1;
+    const char *cbuf = (const char *)buf;
+    int y = 0;
+    for (int i = 0; i < 4; i++) {
+        if (cbuf[i] >= '0' && cbuf[i] <= '9') {
+            y = y * 10 + (cbuf[i] - '0');
+        } else {
+            return -1;
+        }
+    }
+    int m = (cbuf[5] - '0') * 10 + (cbuf[6] - '0');
+    int d = (cbuf[8] - '0') * 10 + (cbuf[9] - '0');
+    int h = (cbuf[11] - '0') * 10 + (cbuf[12] - '0');
+    int min = (cbuf[14] - '0') * 10 + (cbuf[15] - '0');
+    int s = (cbuf[17] - '0') * 10 + (cbuf[18] - '0');
+    
+    rtc_set_datetime(y, m, d, h, min, s);
+    return size;
 }
