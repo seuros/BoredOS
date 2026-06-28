@@ -2,6 +2,7 @@
 // This software is released under the GNU General Public License v3.0. See LICENSE file for details.
 // This header needs to maintain in any file it is present in, as per the GPL license terms.
 #include "kernel_subsystem.h"
+#include "process.h"
 #include "network.h"
 #include "memory_manager.h"
 #include "kutils.h"
@@ -95,9 +96,6 @@ static int read_net_gateway(char *buf, int size, int offset) {
   return read_ip_field(buf, size, offset, network_get_gateway_ip);
 }
 
-static int read_net_dns(char *buf, int size, int offset) {
-  return read_ip_field(buf, size, offset, network_get_dns_ip);
-}
 
 static int read_net_nic(char *buf, int size, int offset) {
   char out[64];
@@ -161,11 +159,6 @@ static int write_net_control(const char *buf, int size, int offset) {
     return network_dhcp_acquire() == 0 ? size : -1;
   } else if (strncmp(buf, "init", 4) == 0) {
     return network_init() == 0 ? size : -1;
-  } else if (strncmp(buf, "set_dns ", 8) == 0) {
-    ipv4_address_t ip;
-    if (parse_ip(buf + 8, &ip) == 0) {
-      return network_set_dns_server(&ip) == 0 ? size : -1;
-    }
   } else if (strncmp(buf, "set_ip ", 7) == 0) {
     ipv4_address_t ip;
     if (parse_ip(buf + 7, &ip) == 0) {
@@ -175,15 +168,70 @@ static int write_net_control(const char *buf, int size, int offset) {
   return -1;
 }
 
+
+
+static int write_ping(const char *buf, int size, int offset) {
+  (void)offset;
+  process_t *proc = process_get_current();
+  if (!proc) return -1;
+  char target[64];
+  int len = size < 63 ? size : 63;
+  memcpy(target, buf, len);
+  target[len] = '\0';
+  while (len > 0 && (target[len - 1] == '\n' || target[len - 1] == '\r' || target[len - 1] == ' ')) {
+    target[--len] = '\0';
+  }
+  
+  ipv4_address_t ip;
+  if (parse_ip(target, &ip) == 0) {
+    extern int network_icmp_single_ping(ipv4_address_t *ip);
+    int rc = network_icmp_single_ping(&ip);
+    if (rc >= 0) {
+      char rtt_str[32];
+      itoa(rc, rtt_str);
+      char *r = proc->ping_result;
+      strcpy(r, "success ");
+      strcpy(r + strlen(r), rtt_str);
+      strcpy(r + strlen(r), "\n");
+    } else {
+      strcpy(proc->ping_result, "failed\n");
+    }
+  } else {
+    strcpy(proc->ping_result, "invalid\n");
+  }
+  return size;
+}
+
+static int read_ping(char *buf, int size, int offset) {
+  process_t *proc = process_get_current();
+  if (!proc) return -1;
+  int len = (int)strlen(proc->ping_result);
+  if (offset >= len) return 0;
+  int to_copy = len - offset;
+  if (to_copy > size) to_copy = size;
+  memcpy(buf, proc->ping_result + offset, to_copy);
+  return to_copy;
+}
+
 void sysfs_net_init(void) {
+  char path[64];
+  extern const char* nic_get_active_name(void);
+  const char* active_name = nic_get_active_name();
+  if (active_name) {
+    strcpy(path, "class/net/");
+    strcat(path, active_name);
+  } else {
+    strcpy(path, "class/net/eth0");
+  }
+
   kernel_subsystem_t *net_sub;
-  subsystem_register("class/net/eth0", &net_sub);
+  subsystem_register(path, &net_sub);
   subsystem_add_file(net_sub, "address", read_net_address, NULL);
   subsystem_add_file(net_sub, "ip", read_net_ip, NULL);
   subsystem_add_file(net_sub, "gateway", read_net_gateway, NULL);
-  subsystem_add_file(net_sub, "dns", read_net_dns, NULL);
   subsystem_add_file(net_sub, "nic", read_net_nic, NULL);
   subsystem_add_file(net_sub, "status", read_net_status, NULL);
   subsystem_add_file(net_sub, "stats", read_net_stats, NULL);
   subsystem_add_file(net_sub, "control", NULL, write_net_control);
+  subsystem_add_file(net_sub, "ping", read_ping, write_ping);
 }

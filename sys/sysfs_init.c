@@ -128,6 +128,66 @@ static int read_pci_bus(char *buf, int size, int offset) {
     return to_copy;
 }
 
+static int read_ticks_info(char *buf, int size, int offset) {
+    extern uint32_t get_ticks(void);
+    uint32_t ticks = get_ticks();
+    char out[32];
+    itoa(ticks, out);
+    strcpy(out + strlen(out), "\n");
+    int len = (int)strlen(out);
+    if (offset >= len) return 0;
+    int to_copy = len - offset;
+    if (to_copy > size) to_copy = size;
+    memcpy(buf, out + offset, to_copy);
+    return to_copy;
+}
+
+static int read_mem_info(char *buf, int size, int offset) {
+    MemStats stats = memory_get_stats();
+    char out[128];
+    char temp[32];
+    out[0] = 0;
+    
+    itoa(stats.total_memory, temp);
+    strcpy(out, temp);
+    strcpy(out + strlen(out), "\n");
+    
+    itoa(stats.used_memory, temp);
+    strcpy(out + strlen(out), temp);
+    strcpy(out + strlen(out), "\n");
+    
+    int len = (int)strlen(out);
+    if (offset >= len) return 0;
+    int to_copy = len - offset;
+    if (to_copy > size) to_copy = size;
+    memcpy(buf, out + offset, to_copy);
+    return to_copy;
+}
+
+static int read_keyboard_layout(char *buf, int size, int offset) {
+    extern int keymap_get_current(void);
+    int layout = keymap_get_current();
+    char out[16];
+    itoa(layout, out);
+    strcpy(out + strlen(out), "\n");
+    int len = (int)strlen(out);
+    if (offset >= len) return 0;
+    int to_copy = len - offset;
+    if (to_copy > size) to_copy = size;
+    memcpy(buf, out + offset, to_copy);
+    return to_copy;
+}
+
+static int write_keyboard_layout(const char *buf, int size, int offset) {
+    (void)offset;
+    int val = 0;
+    for (int i = 0; i < size && buf[i] >= '0' && buf[i] <= '9'; i++) {
+        val = val * 10 + (buf[i] - '0');
+    }
+    extern void keymap_set_current(int id);
+    keymap_set_current(val);
+    return size;
+}
 // --- CPU System Implementation ---
 static int read_cpu_info(char *buf, int size, int offset) {
     char *out = (char*)kmalloc(16384);
@@ -332,6 +392,9 @@ void sysfs_init_subsystems(void) {
     
     // CPU info
     subsystem_add_file(kernel, "cpuinfo", read_cpu_info, NULL);
+    subsystem_add_file(kernel, "ticks", read_ticks_info, NULL);
+    subsystem_add_file(kernel, "meminfo", read_mem_info, NULL);
+    subsystem_add_file(kernel, "keyboard_layout", read_keyboard_layout, write_keyboard_layout);
     
     // Bus info
     kernel_subsystem_t *pci_bus;

@@ -32,24 +32,10 @@
 #include "wait_queue.h"
 #include "work_queue.h"
 
-#define SYSTEM_CMD_DISK_GET_COUNT 100
-#define SYSTEM_CMD_DISK_GET_INFO 101
-#define SYSTEM_CMD_DISK_WRITE_GPT 102
-#define SYSTEM_CMD_DISK_WRITE_MBR 103
-#define SYSTEM_CMD_DISK_MKFS_FAT32 104
-#define SYSTEM_CMD_DISK_MOUNT 105
-#define SYSTEM_CMD_DISK_UMOUNT 106
-#define SYSTEM_CMD_DISK_RESCAN 107
-#define SYSTEM_CMD_DISK_REPLACE_KERNEL 108
-#define SYSTEM_CMD_DISK_SYNC 109
-
 #define SPAWN_FLAG_TERMINAL 0x1
 #define SPAWN_FLAG_INHERIT_TTY 0x2
 #define SPAWN_FLAG_TTY_ID 0x4
 
-#define SYSTEM_CMD_SET_KEYBOARD_LAYOUT 49
-#define SYSTEM_CMD_GET_KEYBOARD_LAYOUT 51
-#define SYSTEM_CMD_SET_FS_BASE 79
 #define MSR_FS_BASE 0xC0000100
 
 
@@ -125,8 +111,6 @@ static uint64_t fs_cmd_unix_socket_bind(const syscall_args_t *args);
 static uint64_t fs_cmd_unix_socket_listen(const syscall_args_t *args);
 static uint64_t fs_cmd_unix_socket_accept(const syscall_args_t *args);
 static uint64_t fs_cmd_unix_socket_connect(const syscall_args_t *args);
-static uint64_t fs_cmd_unix_socket_close(const syscall_args_t *args);
-static uint64_t fs_cmd_unix_socket_unlink(const syscall_args_t *args);
 
 #define O_RDONLY 0x0000
 #define O_WRONLY 0x0001
@@ -247,7 +231,7 @@ static uint64_t fs_cmd_unix_socket_create(const syscall_args_t *args) {
   int type = (int)args->arg3;
   int protocol = (int)args->arg4;
 
-  if (!proc || (domain != 1 && domain != 2) || type != 1 || protocol != 0)
+  if (!proc || (domain != 1 && domain != 2) || (type != 1 && type != 2) || protocol != 0)
     return -1;
 
   int fd = fs_alloc_fd_slot(proc, 0);
@@ -259,6 +243,7 @@ static uint64_t fs_cmd_unix_socket_create(const syscall_args_t *args) {
     return -1;
 
   sock->domain = domain;
+  sock->type = type;
   if (domain == 2) {
     extern int network_is_initialized(void);
     extern int network_init(void);
@@ -635,27 +620,6 @@ static uint64_t fs_cmd_unix_socket_accept(const syscall_args_t *args) {
   }
 }
 
-static uint64_t fs_cmd_unix_socket_close(const syscall_args_t *args) {
-  process_t *proc = process_get_current();
-  int fd = (int)args->arg2;
-  if (!proc || fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd])
-    return -1;
-  if (proc->fd_kind[fd] == PROC_FD_KIND_SOCKET) {
-    process_socket_release((process_fd_socket_t *)proc->fds[fd]);
-    proc->fds[fd] = NULL;
-    proc->fd_kind[fd] = PROC_FD_KIND_NONE;
-    proc->fd_flags[fd] = 0;
-    return 0;
-  }
-  return -1;
-}
-
-static uint64_t fs_cmd_unix_socket_unlink(const syscall_args_t *args) {
-  const char *path = (const char *)args->arg2;
-  if (!path)
-    return -1;
-  return unix_unregister_listener(path);
-}
 
 static uint64_t fs_cmd_open(const syscall_args_t *args) {
   process_t *proc = process_get_current();
@@ -1078,11 +1042,6 @@ static uint64_t fs_list_common(process_t *proc, const char *path,
   return (uint64_t)count;
 }
 
-static uint64_t fs_cmd_list(const syscall_args_t *args) {
-  process_t *proc = process_get_current();
-  return fs_list_common(proc, (const char *)args->arg2,
-                        (FAT32_FileInfo *)args->arg3, (int)args->arg4, 0);
-}
 
 static uint64_t fs_cmd_list_offset(const syscall_args_t *args) {
   process_t *proc = process_get_current();
@@ -1377,50 +1336,8 @@ static uint64_t fs_cmd_ioctl(const syscall_args_t *args) {
   return -1;
 }
 
-#define FS_CMD_TABLE_SIZE 35
-static const syscall_handler_fn fs_cmd_table[FS_CMD_TABLE_SIZE] = {
-    [FS_CMD_OPEN] = fs_cmd_open,               // 1
-    [FS_CMD_READ] = fs_cmd_read,               // 2
-    [FS_CMD_WRITE] = fs_cmd_write,             // 3
-    [FS_CMD_CLOSE] = fs_cmd_close,             // 4
-    [FS_CMD_SEEK] = fs_cmd_seek,               // 5
-    [FS_CMD_TELL] = fs_cmd_tell,               // 6
-    [FS_CMD_LIST] = fs_cmd_list,               // 7
-    [FS_CMD_DELETE] = fs_cmd_delete,           // 8
-    [FS_CMD_SIZE] = fs_cmd_size,               // 9
-    [FS_CMD_MKDIR] = fs_cmd_mkdir,             // 10
-    [FS_CMD_EXISTS] = fs_cmd_exists,           // 11
-    [FS_CMD_GETCWD] = fs_cmd_getcwd,           // 12
-    [FS_CMD_CHDIR] = fs_cmd_chdir,             // 13
-    [FS_CMD_GET_INFO] = fs_cmd_get_info,       // 14
-    [FS_CMD_DUP] = fs_cmd_dup,                 // 15
-    [FS_CMD_DUP2] = fs_cmd_dup2,               // 16
-    [FS_CMD_PIPE] = fs_cmd_pipe,               // 17
-    [FS_CMD_FCNTL] = fs_cmd_fcntl,             // 18
-    [FS_CMD_STATFS] = fs_cmd_statfs,           // 19
-    [FS_CMD_MOUNT_COUNT] = fs_cmd_mount_count, // 20
-    [FS_CMD_MOUNT_INFO] = fs_cmd_mount_info,   // 21
-    [FS_CMD_POLL] = fs_cmd_poll,               // 22
-    [FS_CMD_IOCTL] = fs_cmd_ioctl,             // 24
-    [FS_CMD_UNIX_SOCKET_CREATE] = fs_cmd_unix_socket_create,
-    [FS_CMD_UNIX_SOCKET_BIND] = fs_cmd_unix_socket_bind,
-    [FS_CMD_UNIX_SOCKET_LISTEN] = fs_cmd_unix_socket_listen,
-    [FS_CMD_UNIX_SOCKET_ACCEPT] = fs_cmd_unix_socket_accept,
-    [FS_CMD_UNIX_SOCKET_CONNECT] = fs_cmd_unix_socket_connect,
-    [FS_CMD_UNIX_SOCKET_CLOSE] = fs_cmd_unix_socket_close,
-    [FS_CMD_UNIX_SOCKET_UNLINK] = fs_cmd_unix_socket_unlink,
-    [FS_CMD_LIST_OFFSET] = fs_cmd_list_offset, // 34
-};
 
-static uint64_t sys_cmd_rtc_get(const syscall_args_t *args) {
-  int *dt = (int *)args->arg2;
-  if (!dt)
-    return -1;
-  extern void rtc_get_datetime(int *y, int *m, int *d, int *h, int *min,
-                               int *s);
-  rtc_get_datetime(&dt[0], &dt[1], &dt[2], &dt[3], &dt[4], &dt[5]);
-  return 0;
-}
+
 
 static uint64_t sys_cmd_reboot(const syscall_args_t *args) {
   (void)args;
@@ -1435,220 +1352,7 @@ static uint64_t sys_cmd_shutdown(const syscall_args_t *args) {
 }
  
 
-static uint64_t sys_cmd_get_mem_info(const syscall_args_t *args) {
-  uint64_t *out = (uint64_t *)args->arg2;
-  if (!out)
-    return -1;
-  MemStats stats = memory_get_stats();
-  out[0] = (uint64_t)stats.total_memory;
-  out[1] = (uint64_t)stats.used_memory;
-  return 0;
-}
 
-static uint64_t sys_cmd_get_ticks(const syscall_args_t *args) {
-  (void)args;
-  extern uint32_t get_ticks(void);
-  return (uint64_t)get_ticks();
-}
-
-static uint64_t sys_cmd_pci_list(const syscall_args_t *args) {
-  typedef struct {
-    uint16_t vendor;
-    uint16_t device;
-    uint8_t class_code;
-    uint8_t subclass;
-  } pci_info_t;
-  pci_info_t *info = (pci_info_t *)args->arg2;
-  int idx = (int)args->arg3;
-  if (!info) {
-    pci_device_t pci_devs[128];
-    return pci_enumerate_devices(pci_devs, 128);
-  }
-  pci_device_t pci_devs[128];
-  int count = pci_enumerate_devices(pci_devs, 128);
-  if (idx >= 0 && idx < count) {
-    info->vendor = pci_devs[idx].vendor_id;
-    info->device = pci_devs[idx].device_id;
-    info->class_code = pci_devs[idx].class_code;
-    info->subclass = pci_devs[idx].subclass;
-    return 0;
-  }
-  return -1;
-}
-static uint64_t sys_cmd_udp_send(const syscall_args_t *args) {
-  ipv4_address_t *dest_ip = (ipv4_address_t *)args->arg2;
-  uint32_t ports = (uint32_t)args->arg3;
-  uint16_t dest_port = ports & 0xFFFF;
-  uint16_t src_port = (ports >> 16) & 0xFFFF;
-  const void *data = (const void *)args->arg4;
-  size_t data_len = (size_t)args->arg5;
-  if (!dest_ip || !data)
-    return -1;
-  return udp_send_packet(dest_ip, dest_port, src_port, data, data_len);
-}
-static uint64_t sys_cmd_icmp_ping(const syscall_args_t *args) {
-  ipv4_address_t *dest_ip = (ipv4_address_t *)args->arg2;
-  if (!dest_ip)
-    return -1;
-  extern int network_icmp_single_ping(ipv4_address_t * dest);
-  return (uint64_t)network_icmp_single_ping(dest_ip);
-}
-static uint64_t sys_cmd_set_text_color(const syscall_args_t *args) {
-  process_t *proc = process_get_current();
-  uint32_t color = (uint32_t)args->arg2;
-  if (proc->is_terminal_proc && proc->tty_id >= 0) {
-    char seq[32];
-    int pos = 0;
-    int r = (color >> 16) & 0xFF;
-    int g = (color >> 8) & 0xFF;
-    int b = color & 0xFF;
-
-    seq[pos++] = 0x1B;
-    seq[pos++] = '[';
-    seq[pos++] = '3';
-    seq[pos++] = '8';
-    seq[pos++] = ';';
-    seq[pos++] = '2';
-    seq[pos++] = ';';
-
-    char num[8];
-    itoa(r, num);
-    for (int i = 0; num[i] && pos < (int)sizeof(seq) - 1; i++)
-      seq[pos++] = num[i];
-    seq[pos++] = ';';
-    itoa(g, num);
-    for (int i = 0; num[i] && pos < (int)sizeof(seq) - 1; i++)
-      seq[pos++] = num[i];
-    seq[pos++] = ';';
-    itoa(b, num);
-    for (int i = 0; num[i] && pos < (int)sizeof(seq) - 1; i++)
-      seq[pos++] = num[i];
-    seq[pos++] = 'm';
-
-    tty_write(proc->tty_id, seq, (size_t)pos);
-    return 0;
-  }
-  cmd_set_current_color(color);
-  return 0;
-}
-
-static uint64_t sys_cmd_rtc_set(const syscall_args_t *args) {
-  int *dt = (int *)args->arg2;
-  if (!dt)
-    return -1;
-  extern void rtc_set_datetime(int y, int m, int d, int h, int min, int s);
-  rtc_set_datetime(dt[0], dt[1], dt[2], dt[3], dt[4], dt[5]);
-  return 0;
-}
-
-static uint64_t sys_cmd_tcp_connect(const syscall_args_t *args) {
-  ipv4_address_t *ip = (ipv4_address_t *)args->arg2;
-  uint16_t port = (uint16_t)args->arg3;
-  extern int network_tcp_connect(const ipv4_address_t *ip, uint16_t port);
-  return (uint64_t)network_tcp_connect(ip, port);
-}
-
-static uint64_t sys_cmd_tcp_send(const syscall_args_t *args) {
-  const void *data = (const void *)args->arg2;
-  size_t len = (size_t)args->arg3;
-  extern int network_tcp_send(const void *data, size_t len);
-  return (uint64_t)network_tcp_send(data, len);
-}
-
-static uint64_t sys_cmd_tcp_recv(const syscall_args_t *args) {
-  void *buf = (void *)args->arg2;
-  size_t max_len = (size_t)args->arg3;
-  extern int network_tcp_recv(void *buf, size_t max_len);
-  return (uint64_t)network_tcp_recv(buf, max_len);
-}
-
-static uint64_t sys_cmd_tcp_close(const syscall_args_t *args) {
-  (void)args;
-  extern int network_tcp_close(void);
-  return (uint64_t)network_tcp_close();
-}
-
-static uint64_t sys_cmd_dns_lookup(const syscall_args_t *args) {
-  const char *user_name = (const char *)args->arg2;
-  ipv4_address_t *out_ip = (ipv4_address_t *)args->arg3;
-  char name_buf[256];
-  int i = 0;
-  while (i < 255 && user_name[i]) {
-    name_buf[i] = user_name[i];
-    i++;
-  }
-  name_buf[i] = 0;
-  extern int network_dns_lookup(const char *name, ipv4_address_t *out_ip);
-  return (uint64_t)network_dns_lookup(name_buf, out_ip);
-}
-
-static uint64_t sys_cmd_net_unlock(const syscall_args_t *args) {
-  (void)args;
-  extern void network_force_unlock(void);
-  network_force_unlock();
-  return 0;
-}
-
-
-static uint64_t sys_cmd_set_raw_mode(const syscall_args_t *args) {
-  extern void cmd_set_raw_mode(bool enabled);
-  cmd_set_raw_mode((bool)args->arg2);
-  return 0;
-}
-
-static uint64_t sys_cmd_tcp_recv_nb(const syscall_args_t *args) {
-  void *buf = (void *)args->arg2;
-  size_t max_len = (size_t)args->arg3;
-  extern int network_tcp_recv_nb(void *buf, size_t max_len);
-  return (uint64_t)network_tcp_recv_nb(buf, max_len);
-}
-
-static uint64_t sys_cmd_tcp_listen(const syscall_args_t *args) {
-  uint16_t port = (uint16_t)args->arg2;
-  extern int network_tcp_listen(uint16_t port);
-  return (uint64_t)network_tcp_listen(port);
-}
-
-static uint64_t sys_cmd_tcp_accept(const syscall_args_t *args) {
-  (void)args;
-  extern int network_tcp_accept(void);
-  return (uint64_t)network_tcp_accept();
-}
-
-static uint64_t sys_cmd_parallel_run(const syscall_args_t *args) {
-  process_t *proc = process_get_current();
-  void (*user_fn)(void *) = (void (*)(void *))args->arg2;
-  void **user_args = (void **)args->arg3;
-  int count = (int)args->arg4;
-
-  if (count <= 0)
-    return 0;
-  if (count > 64)
-    count = 64;
-
-  volatile int completion_counter = count;
-  uint64_t current_pml4 = proc->pml4_phys;
-
-  smp_user_task_t tasks[64];
-
-  for (int i = 0; i < count; i++) {
-    tasks[i].fn = user_fn;
-    tasks[i].arg = user_args[i];
-    tasks[i].pml4_phys = current_pml4;
-    tasks[i].completion_counter = &completion_counter;
-
-    extern void work_queue_submit(void (*fn)(void *), void *arg);
-    work_queue_submit(smp_user_wrapper, &tasks[i]);
-  }
-
-  extern bool work_queue_drain_one(void);
-  while (completion_counter > 0) {
-    if (!work_queue_drain_one()) {
-      asm volatile("pause");
-    }
-  }
-  return 0;
-}
 
 static uint64_t sys_cmd_tty_create(const syscall_args_t *args) {
   (void)args;
@@ -1945,31 +1649,7 @@ static uint64_t sys_cmd_pty_destroy(const syscall_args_t *args) {
   return (uint64_t)pty_destroy(pty_id);
 }
 
-static uint64_t sys_cmd_get_elf_metadata(const syscall_args_t *args) {
-  const char *path = (const char *)args->arg2;
-  boredos_app_metadata_t *out = (boredos_app_metadata_t *)args->arg3;
-  if (!path || !out)
-    return 0;
-  return app_metadata_read(path, out) ? 1 : 0;
-}
-static uint64_t sys_cmd_get_elf_primary_image(const syscall_args_t *args) {
-  const char *path = (const char *)args->arg2;
-  char *out_path = (char *)args->arg3;
-  size_t out_size = (size_t)args->arg4;
-  if (!path || !out_path || !out_size)
-    return 0;
-  return app_metadata_get_primary_image(path, out_path, out_size) ? 1 : 0;
-}
 
-static uint64_t sys_cmd_set_keyboard_layout(const syscall_args_t *args) {
-  keymap_set_current((keymap_id_t)args->arg2);
-  return 0;
-}
-
-static uint64_t sys_cmd_get_keyboard_layout(const syscall_args_t *args) {
-  (void)args;
-  return (uint64_t)keymap_get_current();
-}
 
 typedef struct {
   char devname[16];
@@ -2113,198 +1793,8 @@ static uint64_t sys_cmd_disk_sync(const syscall_args_t *args) {
   return (uint64_t)-1;
 }
 
-static uint64_t sys_cmd_disk_replace_kernel(const syscall_args_t *args) {
-  extern void serial_write(const char *str);
-  const char *src_path = (const char *)args->arg2;
-  const char *esp_mountpoint = (const char *)args->arg3;
-  if (!src_path || !esp_mountpoint)
-    return (uint64_t)-1;
 
-  char dest_path[256];
-  int mi = 0;
-  while (mi < 255 && esp_mountpoint[mi]) {
-    dest_path[mi] = esp_mountpoint[mi];
-    mi++;
-  }
-  const char *suffix = "/boredos.elf";
-  for (int i = 0; suffix[i] && mi < 255; i++)
-    dest_path[mi++] = suffix[i];
-  dest_path[mi] = 0;
 
-  if (strcmp(src_path, dest_path) == 0) {
-    serial_write("[KUP] Error: source and destination are the same file\n");
-    return (uint64_t)-1;
-  }
-
-  vfs_file_t *src = vfs_open(src_path, "r");
-  if (!src) {
-    serial_write("[KUP] Error: source not found\n");
-    return (uint64_t)-1;
-  }
-
-  uint32_t src_size = vfs_file_size(src);
-  if (src_size > 100 * 1024 * 1024) {
-    serial_write("[KUP] Error: source > 100 MB\n");
-    vfs_close(src);
-    return (uint64_t)-1;
-  }
-
-  uint8_t magic[4];
-  vfs_read(src, magic, 4);
-  if (magic[0] != 0x7F || magic[1] != 'E' || magic[2] != 'L' ||
-      magic[3] != 'F') {
-    serial_write("[KUP] Error: not an ELF file\n");
-    vfs_close(src);
-    return (uint64_t)-1;
-  }
-  vfs_seek(src, 0, 0);
-
-  char bak_path[256];
-  mi = 0;
-  while (mi < 255 && esp_mountpoint[mi]) {
-    bak_path[mi] = esp_mountpoint[mi];
-    mi++;
-  }
-  const char *bak_suffix = "/boredos.elf.bak";
-  for (int i = 0; bak_suffix[i] && mi < 255; i++)
-    bak_path[mi++] = bak_suffix[i];
-  bak_path[mi] = 0;
-
-  vfs_file_t *existing = vfs_open(dest_path, "r");
-  if (existing) {
-    vfs_file_t *bakf = vfs_open(bak_path, "w");
-    if (bakf) {
-      uint8_t *cbuf = (uint8_t *)kmalloc(4096);
-      if (cbuf) {
-        int n;
-        while ((n = vfs_read(existing, cbuf, 4096)) > 0)
-          vfs_write(bakf, cbuf, n);
-        kfree(cbuf);
-      }
-      vfs_close(bakf);
-    } else {
-      serial_write("[KUP] Warning: could not create backup\n");
-    }
-    vfs_close(existing);
-  }
-
-  vfs_file_t *dst = vfs_open(dest_path, "w");
-  if (!dst) {
-    serial_write("[KUP] Error: could not open destination for write\n");
-    vfs_close(src);
-    return (uint64_t)-1;
-  }
-
-  uint8_t *buf = (uint8_t *)kmalloc(4096);
-  if (!buf) {
-    vfs_close(src);
-    vfs_close(dst);
-    return (uint64_t)-1;
-  }
-
-  uint32_t bytes_written = 0;
-  int n;
-  while ((n = vfs_read(src, buf, 4096)) > 0) {
-    int written = vfs_write(dst, buf, n);
-    if (written != n) {
-      serial_write("[KUP] Error: write failed mid-copy\n");
-      kfree(buf);
-      vfs_close(src);
-      vfs_close(dst);
-      return (uint64_t)-1;
-    }
-    bytes_written += (uint32_t)written;
-  }
-
-  kfree(buf);
-  vfs_close(src);
-  vfs_close(dst);
-
-  if (bytes_written != src_size) {
-    serial_write("[KUP] Error: incomplete write (size mismatch)\n");
-    return (uint64_t)-1;
-  }
-
-  serial_write("[KUP] Kernel replaced (");
-  {
-    char numstr[16];
-    int ni = 15;
-    numstr[ni] = 0;
-    uint32_t v = bytes_written;
-    if (v == 0) {
-      numstr[--ni] = '0';
-    } else {
-      while (v > 0) {
-        numstr[--ni] = '0' + (v % 10);
-        v /= 10;
-      }
-    }
-    serial_write(numstr + ni);
-  }
-  serial_write(" bytes). Backup at boredos.elf.bak. Reboot required.\n");
-  return 0;
-}
-
-#define SYS_CMD_TABLE_SIZE 110
-static const syscall_handler_fn sys_cmd_table[SYS_CMD_TABLE_SIZE] = {
-    [SYSTEM_CMD_RTC_GET] = sys_cmd_rtc_get,
-    [SYSTEM_CMD_REBOOT] = sys_cmd_reboot,
-    [SYSTEM_CMD_SHUTDOWN] = sys_cmd_shutdown,
-    [SYSTEM_CMD_GET_MEM_INFO] = sys_cmd_get_mem_info,
-    [SYSTEM_CMD_GET_TICKS] = sys_cmd_get_ticks,
-    [SYSTEM_CMD_PCI_LIST] = sys_cmd_pci_list,
-    [SYSTEM_CMD_UDP_SEND] = sys_cmd_udp_send,
-    [SYSTEM_CMD_ICMP_PING] = sys_cmd_icmp_ping,
-    [SYSTEM_CMD_SET_TEXT_COLOR] = sys_cmd_set_text_color,
-    [SYSTEM_CMD_RTC_SET] = sys_cmd_rtc_set,
-    [SYSTEM_CMD_TCP_CONNECT] = sys_cmd_tcp_connect,
-    [SYSTEM_CMD_TCP_SEND] = sys_cmd_tcp_send,
-    [SYSTEM_CMD_TCP_RECV] = sys_cmd_tcp_recv,
-    [SYSTEM_CMD_TCP_CLOSE] = sys_cmd_tcp_close,
-    [SYSTEM_CMD_DNS_LOOKUP] = sys_cmd_dns_lookup,
-    [SYSTEM_CMD_NET_UNLOCK] = sys_cmd_net_unlock,
-    [SYSTEM_CMD_SET_RAW_MODE] = sys_cmd_set_raw_mode,
-    [SYSTEM_CMD_TCP_RECV_NB] = sys_cmd_tcp_recv_nb,
-    [SYSTEM_CMD_TCP_LISTEN] = sys_cmd_tcp_listen,
-    [SYSTEM_CMD_TCP_ACCEPT] = sys_cmd_tcp_accept,
-    [SYSTEM_CMD_PARALLEL_RUN] = sys_cmd_parallel_run,
-    [SYSTEM_CMD_SET_KEYBOARD_LAYOUT] = sys_cmd_set_keyboard_layout,
-    [SYSTEM_CMD_GET_KEYBOARD_LAYOUT] = sys_cmd_get_keyboard_layout,
-    [SYSTEM_CMD_TTY_CREATE] = sys_cmd_tty_create,
-    [SYSTEM_CMD_TTY_READ_OUT] = sys_cmd_tty_read_out,
-    [SYSTEM_CMD_TTY_WRITE_IN] = sys_cmd_tty_write_in,
-    [SYSTEM_CMD_TTY_READ_IN] = sys_cmd_tty_read_in,
-    [SYSTEM_CMD_SPAWN] = sys_cmd_spawn_process,
-    [SYSTEM_CMD_TTY_SET_FG] = sys_cmd_tty_set_fg,
-    [SYSTEM_CMD_TTY_GET_FG] = sys_cmd_tty_get_fg,
-    [SYSTEM_CMD_TTY_KILL_FG] = sys_cmd_tty_kill_fg,
-    [SYSTEM_CMD_TTY_KILL_ALL] = sys_cmd_tty_kill_all,
-    [SYSTEM_CMD_TTY_DESTROY] = sys_cmd_tty_destroy,
-    [SYSTEM_CMD_EXEC] = sys_cmd_exec_process,
-    [SYSTEM_CMD_WAITPID] = sys_cmd_waitpid,
-    [SYSTEM_CMD_KILL_SIGNAL] = sys_cmd_kill_signal,
-    [SYSTEM_CMD_SIGACTION] = sys_cmd_sigaction,
-    [SYSTEM_CMD_SIGPROCMASK] = sys_cmd_sigprocmask,
-    [SYSTEM_CMD_SIGPENDING] = sys_cmd_sigpending,
-    [SYSTEM_CMD_GET_ELF_METADATA] = sys_cmd_get_elf_metadata,
-    [SYSTEM_CMD_GET_ELF_PRIMARY_IMAGE] = sys_cmd_get_elf_primary_image,
-    [SYSTEM_CMD_TTY_GET_ID] = sys_cmd_tty_get_id,
-    [SYSTEM_CMD_SET_FS_BASE] = sys_cmd_set_fs_base,
-    [SYSTEM_CMD_FORK] = sys_cmd_fork_process,
-    [SYSTEM_CMD_DISK_GET_COUNT] = sys_cmd_disk_get_count,
-    [SYSTEM_CMD_DISK_GET_INFO] = sys_cmd_disk_get_info,
-    [SYSTEM_CMD_DISK_WRITE_GPT] = sys_cmd_disk_write_gpt,
-    [SYSTEM_CMD_DISK_WRITE_MBR] = sys_cmd_disk_write_mbr,
-    [SYSTEM_CMD_DISK_MKFS_FAT32] = sys_cmd_disk_mkfs_fat32,
-    [SYSTEM_CMD_DISK_MOUNT] = sys_cmd_disk_mount,
-    [SYSTEM_CMD_DISK_UMOUNT] = sys_cmd_disk_umount,
-    [SYSTEM_CMD_DISK_RESCAN] = sys_cmd_disk_rescan,
-    [SYSTEM_CMD_DISK_REPLACE_KERNEL] = sys_cmd_disk_replace_kernel,
-    [SYSTEM_CMD_DISK_SYNC] = sys_cmd_disk_sync,
-    [SYSTEM_CMD_PTY_CREATE] = sys_cmd_pty_create,
-    [SYSTEM_CMD_PTY_DESTROY] = sys_cmd_pty_destroy,
-    [SYSTEM_CMD_GET_PID] = sys_cmd_get_pid,
-};
 
 static uint64_t sys_cmd_get_pid(const syscall_args_t *args) {
   (void)args;
@@ -2343,27 +1833,7 @@ static uint64_t handle_sys_write(const syscall_args_t *args) {
   return len;
 }
 
-static uint64_t handle_sys_fs(const syscall_args_t *args) {
-  int cmd = (int)args->arg1;
-  if (cmd >= 0 && cmd < FS_CMD_TABLE_SIZE && fs_cmd_table[cmd]) {
-    return fs_cmd_table[cmd](args);
-  }
-  return 0;
-}
 
-static uint64_t handle_sys_system(const syscall_args_t *args) {
-  int cmd = (int)args->arg1;
-  if (cmd >= 0 && cmd < SYS_CMD_TABLE_SIZE && sys_cmd_table[cmd]) {
-    return sys_cmd_table[cmd](args);
-  }
-  return -1;
-}
-
-static uint64_t handle_debug_serial_write(const syscall_args_t *args) {
-  extern void serial_write(const char *str);
-  serial_write((const char *)args->arg2);
-  return 0;
-}
 
 static uint64_t handle_sys_sbrk(const syscall_args_t *args) {
   int incr = (int)args->arg1;
@@ -2417,10 +1887,6 @@ static uint64_t handle_sys_sbrk(const syscall_args_t *args) {
 #define MAP_ANONYMOUS 0x20
 #define MAP_FAILED ((void *)-1)
 
-static uint64_t handle_sys_kill(const syscall_args_t *args) {
-  (void)args;
-  return 0;
-}
 
 static uint64_t handle_sys_mmap(const syscall_args_t *args) {
   process_t *proc = process_get_current();
@@ -2687,13 +2153,547 @@ static uint64_t handle_sys_futex(const syscall_args_t *args) {
   return (uint64_t)-1; /* ENOSYS for unknown ops */
 }
 
-#define SYSCALL_TABLE_SIZE 14
+// Adapters for flat system calls
+static uint64_t handle_sys_read(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // fd
+  shifted.arg3 = args->arg2; // buf
+  shifted.arg4 = args->arg3; // count
+  return fs_cmd_read(&shifted);
+}
+
+static uint64_t handle_sys_open(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // path
+  shifted.arg3 = args->arg2; // mode (string)
+  return fs_cmd_open(&shifted);
+}
+
+static uint64_t handle_sys_close(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // fd
+  return fs_cmd_close(&shifted);
+}
+
+static uint64_t handle_sys_stat(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // path
+  shifted.arg3 = args->arg2; // info
+  return fs_cmd_get_info(&shifted);
+}
+
+static uint64_t handle_sys_poll(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // fds
+  shifted.arg3 = args->arg2; // nfds
+  shifted.arg4 = args->arg3; // timeout
+  return fs_cmd_poll(&shifted);
+}
+
+static uint64_t handle_sys_lseek(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // fd
+  shifted.arg3 = args->arg2; // offset
+  shifted.arg4 = args->arg3; // whence
+  return fs_cmd_seek(&shifted);
+}
+
+static uint64_t handle_sys_rt_sigaction(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // sig
+  shifted.arg3 = args->arg2; // act
+  shifted.arg4 = args->arg3; // oact
+  return sys_cmd_sigaction(&shifted);
+}
+
+static uint64_t handle_sys_rt_sigprocmask(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // how
+  shifted.arg3 = args->arg2; // set
+  shifted.arg4 = args->arg3; // oset
+  return sys_cmd_sigprocmask(&shifted);
+}
+
+static uint64_t handle_sys_ioctl(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // fd
+  shifted.arg3 = args->arg2; // request
+  shifted.arg4 = args->arg3; // arg
+  return fs_cmd_ioctl(&shifted);
+}
+
+static uint64_t handle_sys_fcntl(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // fd
+  shifted.arg3 = args->arg2; // cmd
+  shifted.arg4 = args->arg3; // val
+  return fs_cmd_fcntl(&shifted);
+}
+
+static uint64_t handle_sys_pipe(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // pipefd
+  return fs_cmd_pipe(&shifted);
+}
+
+static uint64_t handle_sys_dup(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // oldfd
+  return fs_cmd_dup(&shifted);
+}
+
+static uint64_t handle_sys_dup2(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // oldfd
+  shifted.arg3 = args->arg2; // newfd
+  return fs_cmd_dup2(&shifted);
+}
+
+static uint64_t handle_sys_socket(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // domain
+  shifted.arg3 = args->arg2; // type
+  shifted.arg4 = args->arg3; // protocol
+  return fs_cmd_unix_socket_create(&shifted);
+}
+
+static uint64_t handle_sys_connect(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // sockfd
+  shifted.arg3 = args->arg2; // addr
+  shifted.arg4 = args->arg3; // addrlen
+  return fs_cmd_unix_socket_connect(&shifted);
+}
+
+static uint64_t handle_sys_accept(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // sockfd
+  shifted.arg3 = args->arg2; // addr
+  shifted.arg4 = args->arg3; // addrlen
+  return fs_cmd_unix_socket_accept(&shifted);
+}
+
+static uint64_t handle_sys_sendto(const syscall_args_t *args) {
+  int fd = (int)args->arg1;
+  const void *buf = (const void *)args->arg2;
+  size_t len = (size_t)args->arg3;
+  int flags = (int)args->arg4;
+  const void *dest_addr = (const void *)args->arg5;
+  uint64_t addrlen = args->arg6;
+  (void)flags;
+
+  process_t *proc = process_get_current();
+  if (!proc || fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd] ||
+      proc->fd_kind[fd] != PROC_FD_KIND_SOCKET) {
+    return -1;
+  }
+  process_fd_socket_t *sock = (process_fd_socket_t *)proc->fds[fd];
+  if (!sock) return -1;
+
+  if (sock->domain == 2) {
+    if (sock->type == 2) {
+      if (addrlen < 8 || !dest_addr) return -1;
+      uint16_t family = *(const uint16_t *)dest_addr;
+      if (family != 2) return -1;
+      uint16_t sin_port = *(const uint16_t *)((const char *)dest_addr + 2);
+      uint16_t port = ((sin_port & 0xFF) << 8) | ((sin_port >> 8) & 0xFF);
+      uint32_t ip_val = *(const uint32_t *)((const char *)dest_addr + 4);
+
+      extern int network_socket_sendto(void *sock, const void *data, size_t len, uint32_t dest_ip, uint16_t dest_port);
+      return (uint64_t)network_socket_sendto(sock, buf, len, ip_val, port);
+    }
+  }
+  return -1;
+}
+
+static uint64_t handle_sys_recvfrom(const syscall_args_t *args) {
+  int fd = (int)args->arg1;
+  void *buf = (void *)args->arg2;
+  size_t len = (size_t)args->arg3;
+  int flags = (int)args->arg4;
+  void *src_addr = (void *)args->arg5;
+  uint64_t *addrlen_ptr = (uint64_t *)args->arg6;
+
+  process_t *proc = process_get_current();
+  if (!proc || fd < 0 || fd >= MAX_PROCESS_FDS || !proc->fds[fd] ||
+      proc->fd_kind[fd] != PROC_FD_KIND_SOCKET) {
+    return -1;
+  }
+  process_fd_socket_t *sock = (process_fd_socket_t *)proc->fds[fd];
+  if (!sock) return -1;
+
+  int nonblock = ((flags & 0x40) || (proc->fd_flags[fd] & O_NONBLOCK)) ? 1 : 0;
+
+  if (sock->domain == 2) {
+    if (sock->type == 2) {
+      uint32_t from_ip = 0;
+      uint16_t from_port = 0;
+      extern int network_socket_recvfrom(void *sock, void *buf, size_t max_len, int nonblock, uint32_t *from_ip, uint16_t *from_port);
+      int ret = network_socket_recvfrom(sock, buf, len, nonblock, &from_ip, &from_port);
+      if (ret == -2) {
+        return (uint64_t)-2;
+      }
+      if (ret >= 0 && src_addr && addrlen_ptr && *addrlen_ptr >= 8) {
+        *(uint16_t *)src_addr = 2; // AF_INET
+        uint16_t sin_port = ((from_port & 0xFF) << 8) | ((from_port >> 8) & 0xFF);
+        *(uint16_t *)((char *)src_addr + 2) = sin_port;
+        *(uint32_t *)((char *)src_addr + 4) = from_ip;
+        *addrlen_ptr = 8;
+      }
+      return (uint64_t)ret;
+    }
+  }
+  return -1;
+}
+
+static uint64_t handle_sys_bind(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // sockfd
+  shifted.arg3 = args->arg2; // addr
+  shifted.arg4 = args->arg3; // addrlen
+  return fs_cmd_unix_socket_bind(&shifted);
+}
+
+static uint64_t handle_sys_listen(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // sockfd
+  shifted.arg3 = args->arg2; // backlog
+  return fs_cmd_unix_socket_listen(&shifted);
+}
+
+static uint64_t handle_sys_fork(const syscall_args_t *args) {
+  return sys_cmd_fork_process(args);
+}
+
+static uint64_t handle_sys_execve(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // path
+  shifted.arg3 = args->arg2; // args
+  return sys_cmd_exec_process(&shifted);
+}
+
+static uint64_t handle_sys_wait4(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // pid
+  shifted.arg3 = args->arg2; // status
+  shifted.arg4 = args->arg3; // options
+  return sys_cmd_waitpid(&shifted);
+}
+
+static uint64_t handle_sys_kill(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // pid
+  shifted.arg3 = args->arg2; // sig
+  return sys_cmd_kill_signal(&shifted);
+}
+
+static uint64_t handle_sys_rt_sigpending(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // set
+  return sys_cmd_sigpending(&shifted);
+}
+
+static uint64_t handle_sys_getcwd(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // buf
+  shifted.arg3 = args->arg2; // size
+  return fs_cmd_getcwd(&shifted);
+}
+
+static uint64_t handle_sys_chdir(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // path
+  return fs_cmd_chdir(&shifted);
+}
+
+static uint64_t handle_sys_mkdir(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // path
+  return fs_cmd_mkdir(&shifted);
+}
+
+static uint64_t handle_sys_unlink(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // path
+  return fs_cmd_delete(&shifted);
+}
+
+static uint64_t handle_sys_arch_prctl(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1; // base
+  return sys_cmd_set_fs_base(&shifted);
+}
+
+
+// BoredOS Custom flat wrappers
+static uint64_t handle_sys_list_offset(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  shifted.arg4 = args->arg3;
+  shifted.arg5 = args->arg4;
+  return fs_cmd_list_offset(&shifted);
+}
+
+static uint64_t handle_sys_size(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  return fs_cmd_size(&shifted);
+}
+
+static uint64_t handle_sys_tell(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  return fs_cmd_tell(&shifted);
+}
+
+static uint64_t handle_sys_exists(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  return fs_cmd_exists(&shifted);
+}
+
+static uint64_t handle_sys_fs_statfs(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  return fs_cmd_statfs(&shifted);
+}
+
+static uint64_t handle_sys_fs_mount_count(const syscall_args_t *args) {
+  return fs_cmd_mount_count(args);
+}
+
+static uint64_t handle_sys_fs_mount_info(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  return fs_cmd_mount_info(&shifted);
+}
+
+static uint64_t handle_sys_tty_create(const syscall_args_t *args) {
+  return sys_cmd_tty_create(args);
+}
+
+static uint64_t handle_sys_tty_read_out(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  shifted.arg4 = args->arg3;
+  return sys_cmd_tty_read_out(&shifted);
+}
+
+static uint64_t handle_sys_tty_write_in(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  shifted.arg4 = args->arg3;
+  return sys_cmd_tty_write_in(&shifted);
+}
+
+static uint64_t handle_sys_tty_read_in(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  return sys_cmd_tty_read_in(&shifted);
+}
+
+static uint64_t handle_sys_tty_destroy(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  return sys_cmd_tty_destroy(&shifted);
+}
+
+static uint64_t handle_sys_tty_set_fg(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  return sys_cmd_tty_set_fg(&shifted);
+}
+
+static uint64_t handle_sys_tty_get_fg(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  return sys_cmd_tty_get_fg(&shifted);
+}
+
+static uint64_t handle_sys_tty_kill_fg(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  return sys_cmd_tty_kill_fg(&shifted);
+}
+
+static uint64_t handle_sys_tty_kill_all(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  return sys_cmd_tty_kill_all(&shifted);
+}
+
+static uint64_t handle_sys_tty_get_id(const syscall_args_t *args) {
+  return sys_cmd_tty_get_id(args);
+}
+
+static uint64_t handle_sys_spawn(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  shifted.arg4 = args->arg3;
+  shifted.arg5 = args->arg4;
+  return sys_cmd_spawn_process(&shifted);
+}
+
+
+static uint64_t handle_sys_pty_create(const syscall_args_t *args) {
+  return sys_cmd_pty_create(args);
+}
+
+static uint64_t handle_sys_pty_destroy(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  return sys_cmd_pty_destroy(&shifted);
+}
+
+static uint64_t handle_sys_disk_get_count(const syscall_args_t *args) {
+  return sys_cmd_disk_get_count(args);
+}
+
+static uint64_t handle_sys_disk_get_info(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  return sys_cmd_disk_get_info(&shifted);
+}
+
+static uint64_t handle_sys_disk_write_gpt(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  shifted.arg4 = args->arg3;
+  return sys_cmd_disk_write_gpt(&shifted);
+}
+
+static uint64_t handle_sys_disk_write_mbr(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  shifted.arg4 = args->arg3;
+  return sys_cmd_disk_write_mbr(&shifted);
+}
+
+static uint64_t handle_sys_disk_mkfs_fat32(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  return sys_cmd_disk_mkfs_fat32(&shifted);
+}
+
+static uint64_t handle_sys_disk_mount(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  shifted.arg3 = args->arg2;
+  return sys_cmd_disk_mount(&shifted);
+}
+
+static uint64_t handle_sys_disk_umount(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  return sys_cmd_disk_umount(&shifted);
+}
+
+static uint64_t handle_sys_disk_sync(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  return sys_cmd_disk_sync(&shifted);
+}
+
+static uint64_t handle_sys_disk_rescan(const syscall_args_t *args) {
+  syscall_args_t shifted = *args;
+  shifted.arg2 = args->arg1;
+  return sys_cmd_disk_rescan(&shifted);
+}
+
+
+
+static uint64_t handle_sys_reboot(const syscall_args_t *args) {
+  return sys_cmd_reboot(args);
+}
+
+static uint64_t handle_sys_shutdown(const syscall_args_t *args) {
+  return sys_cmd_shutdown(args);
+}
+
+
+#define SYSCALL_TABLE_SIZE 351
 static const syscall_handler_fn syscall_table[SYSCALL_TABLE_SIZE] = {
-    [SYS_WRITE] = handle_sys_write, [SYS_FS] = handle_sys_fs,
-    [5] = handle_sys_system,        [8] = handle_debug_serial_write,
-    [9] = handle_sys_sbrk,          [10] = handle_sys_kill,
-    [SYS_MMAP] = handle_sys_mmap,   [SYS_MUNMAP] = handle_sys_munmap,
+    [SYS_READ] = handle_sys_read,
+    [SYS_WRITE] = handle_sys_write,
+    [SYS_OPEN] = handle_sys_open,
+    [SYS_CLOSE] = handle_sys_close,
+    [SYS_STAT] = handle_sys_stat,
+    [SYS_POLL] = handle_sys_poll,
+    [SYS_LSEEK] = handle_sys_lseek,
+    [SYS_MMAP] = handle_sys_mmap,
+    [SYS_MUNMAP] = handle_sys_munmap,
+    [SYS_BRK] = handle_sys_sbrk,
+    [SYS_RT_SIGACTION] = handle_sys_rt_sigaction,
+    [SYS_RT_SIGPROCMASK] = handle_sys_rt_sigprocmask,
+    [SYS_IOCTL] = handle_sys_ioctl,
+    [SYS_PIPE] = handle_sys_pipe,
+    [SYS_DUP] = handle_sys_dup,
+    [SYS_DUP2] = handle_sys_dup2,
+    [SYS_GETPID] = sys_cmd_get_pid,
+    [SYS_SOCKET] = handle_sys_socket,
+    [SYS_CONNECT] = handle_sys_connect,
+    [SYS_ACCEPT] = handle_sys_accept,
+    [SYS_SENDTO] = handle_sys_sendto,
+    [SYS_RECVFROM] = handle_sys_recvfrom,
+    [SYS_BIND] = handle_sys_bind,
+    [SYS_LISTEN] = handle_sys_listen,
+    [SYS_FORK] = handle_sys_fork,
+    [SYS_EXECVE] = handle_sys_execve,
+    [SYS_WAIT4] = handle_sys_wait4,
+    [SYS_KILL] = handle_sys_kill,
+    [SYS_FCNTL] = handle_sys_fcntl,
+    [SYS_RT_SIGPENDING] = handle_sys_rt_sigpending,
+    [SYS_GETCWD] = handle_sys_getcwd,
+    [SYS_CHDIR] = handle_sys_chdir,
+    [SYS_MKDIR] = handle_sys_mkdir,
+    [SYS_UNLINK] = handle_sys_unlink,
+    [SYS_ARCH_PRCTL] = handle_sys_arch_prctl,
     [SYS_FUTEX] = handle_sys_futex,
+
+    // Custom BoredOS system calls
+    [SYS_LIST_OFFSET] = handle_sys_list_offset,
+    [SYS_SIZE] = handle_sys_size,
+    [SYS_TELL] = handle_sys_tell,
+    [SYS_EXISTS] = handle_sys_exists,
+    [SYS_FS_STATFS] = handle_sys_fs_statfs,
+    [SYS_FS_MOUNT_COUNT] = handle_sys_fs_mount_count,
+    [SYS_FS_MOUNT_INFO] = handle_sys_fs_mount_info,
+    [SYS_TTY_CREATE] = handle_sys_tty_create,
+    [SYS_TTY_READ_OUT] = handle_sys_tty_read_out,
+    [SYS_TTY_WRITE_IN] = handle_sys_tty_write_in,
+    [SYS_TTY_READ_IN] = handle_sys_tty_read_in,
+    [SYS_TTY_DESTROY] = handle_sys_tty_destroy,
+    [SYS_TTY_SET_FG] = handle_sys_tty_set_fg,
+    [SYS_TTY_GET_FG] = handle_sys_tty_get_fg,
+    [SYS_TTY_KILL_FG] = handle_sys_tty_kill_fg,
+    [SYS_TTY_KILL_ALL] = handle_sys_tty_kill_all,
+    [SYS_TTY_GET_ID] = handle_sys_tty_get_id,
+    [SYS_SPAWN] = handle_sys_spawn,
+    [SYS_PTY_CREATE] = handle_sys_pty_create,
+    [SYS_PTY_DESTROY] = handle_sys_pty_destroy,
+    [SYS_DISK_GET_COUNT] = handle_sys_disk_get_count,
+    [SYS_DISK_GET_INFO] = handle_sys_disk_get_info,
+    [SYS_DISK_WRITE_GPT] = handle_sys_disk_write_gpt,
+    [SYS_DISK_WRITE_MBR] = handle_sys_disk_write_mbr,
+    [SYS_DISK_MKFS_FAT32] = handle_sys_disk_mkfs_fat32,
+    [SYS_DISK_MOUNT] = handle_sys_disk_mount,
+    [SYS_DISK_UMOUNT] = handle_sys_disk_umount,
+    [SYS_DISK_SYNC] = handle_sys_disk_sync,
+    [SYS_DISK_RESCAN] = handle_sys_disk_rescan,
+    [SYS_REBOOT] = handle_sys_reboot,
+    [SYS_SHUTDOWN] = handle_sys_shutdown,
 };
 
 static uint64_t syscall_handler_inner(registers_t *regs) {
@@ -2793,39 +2793,19 @@ uint64_t syscall_handler_c(registers_t *regs) {
   uint64_t syscall_num = regs->rax;
 
   // Check for context-switching syscalls
-  if (syscall_num == 0 || syscall_num == 60) { // EXIT
+  if (syscall_num == SYS_EXIT) { // EXIT
     int status = (int)regs->rdi;
     return process_terminate_current_with_status((status & 0xff) << 8, (uint64_t)regs);
   }
 
-  if (syscall_num == 10) { // KILL
-    uint32_t target_pid = (uint32_t)regs->rdi;
-    process_t *current = process_get_current();
-    if (target_pid == 0) {
-      // Protect kernel process
-      regs->rax = -1;
-      return (uint64_t)regs;
-    }
-    if (target_pid == 0xFFFFFFFF || target_pid == current->pid) {
-      return process_terminate_current((uint64_t)regs);
-    } else {
-      process_t *target = process_get_by_pid(target_pid);
-      if (target) {
-        process_terminate(target);
-      }
-      regs->rax = 0;
-      return (uint64_t)regs;
-    }
-  }
-
-  if (syscall_num == SYS_SYSTEM && regs->rdi == SYSTEM_CMD_YIELD) {
+  if (syscall_num == SYS_SCHED_YIELD) {
     extern uint64_t process_schedule(uint64_t current_rsp);
     regs->rax = 0;
     return process_schedule((uint64_t)regs);
   }
 
-  if (syscall_num == SYS_SYSTEM && regs->rdi == SYSTEM_CMD_SLEEP) {
-    uint32_t ms = (uint32_t)regs->rsi;
+  if (syscall_num == SYS_NANOSLEEP) {
+    uint32_t ms = (uint32_t)regs->rdi;
     process_t *proc = process_get_current();
     extern uint32_t get_ticks(void);
     uint32_t ticks = ms / 16;
@@ -2839,13 +2819,12 @@ uint64_t syscall_handler_c(registers_t *regs) {
   // Normal syscalls
   regs->rax = syscall_handler_inner(regs);
 
-  if (syscall_num == SYS_SYSTEM && regs->rdi == SYSTEM_CMD_WAITPID &&
-      regs->rax == (uint64_t)-2) {
+  if (syscall_num == SYS_WAIT4 && regs->rax == (uint64_t)-2) {
     regs->rax = 0;
     return process_schedule((uint64_t)regs);
   }
 
-  if (syscall_num == SYS_FS && regs->rax == (uint64_t)-2) {
+  if ((syscall_num == SYS_READ || syscall_num == SYS_WRITE || syscall_num == SYS_POLL || syscall_num == SYS_ACCEPT) && regs->rax == (uint64_t)-2) {
     regs->rax = -2;
     uint64_t ret = process_schedule((uint64_t)regs);
     poll_cleanup(process_get_current());
